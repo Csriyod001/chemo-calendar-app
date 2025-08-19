@@ -122,10 +122,15 @@
             { id: 34, name: "Freestyle Regimen", group: 5, description: "กำหนดรูปแบบการทานยาเอง" }
         ];
 
+        // Fallback data in case the API fails
+        const THAI_HOLIDAYS_FALLBACK = [
+            '2024-01-01', '2024-01-02', '2024-02-26', '2024-04-08', '2024-04-12', '2024-04-15', '2024-04-16', '2024-05-01', '2024-05-06', '2024-05-22', '2024-06-03', '2024-07-22', '2024-07-29', '2024-08-12', '2024-10-14', '2024-10-23', '2024-12-05', '2024-12-10', '2024-12-30', '2024-12-31',
+            '2025-01-01', '2025-02-12', '2025-03-05', '2025-04-07', '2025-04-14', '2025-04-15', '2025-05-01', '2025-05-05', '2025-06-03', '2025-07-01', '2025-07-28', '2025-08-12', '2025-10-13', '2025-10-23', '2025-12-05', '2025-12-08', '2025-12-10', '2025-12-31'
+        ];
+
         // --- Utility Functions ---
         const isWeekend = (date) => { const day = date.getDay(); return day === 0 || day === 6; };
         
-        // This function will now check against the state `thaiHolidays`
         const isHoliday = (date, thaiHolidays) => {
             const dateString = dateToYYYYMMDD(date);
             return thaiHolidays.includes(dateString);
@@ -297,47 +302,57 @@
             const [appointmentDateInput, setAppointmentDateInput] = useState('');
             const [pharmacistNotes, setPharmacistNotes] = useState('');
             
-            // --- NEW STATE FOR HOLIDAYS ---
+            // --- HOLIDAY STATE ---
             const [thaiHolidays, setThaiHolidays] = useState([]);
             const [holidaysLoading, setHolidaysLoading] = useState(true);
 
-            // --- API KEY - PLEASE REPLACE WITH YOUR OWN ---
-            const API_KEY = 'AIzaSyAyV7R_yezXZEv-U6wS9xMYuDQbsS6pknQ'; // <-- 🚨 สำคัญ: กรุณาใส่ API Key ของคุณที่นี่
+            // --- API KEY ---
+            // 🚨🚨🚨 ข้อควรระวัง: หากยังพบ Error 🚨🚨🚨
+            // ปัญหานี้เกิดจากการตั้งค่า "HTTP referrers" ใน Google Cloud Console
+            // ที่ไม่ตรงกับ URL ของเว็บไซต์คุณ (csriya001.github.io)
+            // กรุณาตรวจสอบการตั้งค่าให้แน่ใจว่าได้ใส่ "csriya001.github.io/*"
+            // และไม่มีตัวอักษรผิดเพี้ยน
+            const API_KEY = 'AIzaSyAyV7R_yezXZEv-U6wS9xMYuDQbsS6pknQ'; 
             const CALENDAR_ID = 'th.th#holiday@group.v.calendar.google.com';
 
-            // --- FETCH HOLIDAYS FROM GOOGLE CALENDAR API ---
+            // --- FETCH HOLIDAYS FROM GOOGLE CALENDAR API (with Fallback) ---
             useEffect(() => {
                 const fetchHolidays = async () => {
                     setHolidaysLoading(true);
+                    setError(''); // Clear previous errors
                     const currentYear = new Date().getFullYear();
-                    // Fetch for current and next year for better coverage
                     const timeMin = `${currentYear}-01-01T00:00:00Z`;
                     const timeMax = `${currentYear + 1}-12-31T23:59:59Z`;
-                    
                     const url = `https://www.googleapis.com/calendar/v3/calendars/${CALENDAR_ID}/events?key=${API_KEY}&timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&maxResults=250`;
 
                     try {
                         const response = await fetch(url);
                         if (!response.ok) {
-                            throw new Error(`Google API Error: ${response.statusText}`);
+                            let errorBody = null;
+                            try { errorBody = await response.json(); } catch (e) { /* ignore */ }
+                            const errorMessage = errorBody?.error?.message || `${response.status} ${response.statusText}`;
+                            throw new Error(errorMessage);
                         }
                         const data = await response.json();
                         const holidayDates = data.items.map(item => item.start.date);
                         setThaiHolidays(holidayDates);
                     } catch (err) {
                         console.error("Failed to fetch Thai holidays:", err);
-                        setError("ไม่สามารถดึงข้อมูลวันหยุดได้ กรุณาตรวจสอบ API Key");
+                        // Improved error message for the user
+                        let userErrorMessage = "ไม่สามารถดึงข้อมูลวันหยุดจาก API ได้";
+                        if (err.message && (err.message.includes("Forbidden") || err.message.includes("credential"))) {
+                            userErrorMessage = "API Key Error: ไม่สามารถยืนยันตัวตนได้ กรุณาตรวจสอบการตั้งค่า 'HTTP referrers' บน Google Cloud Console ให้ถูกต้อง";
+                        }
+                        userErrorMessage += " (ใช้ข้อมูลสำรองแทน)";
+                        setError(userErrorMessage);
+                        setThaiHolidays(THAI_HOLIDAYS_FALLBACK); // Use fallback on error
                     } finally {
                         setHolidaysLoading(false);
                     }
                 };
 
-                if(API_KEY === 'YOUR_GOOGLE_CALENDAR_API_KEY') {
-                    setError("กรุณาตั้งค่า Google Calendar API Key ในโค้ด");
-                    setHolidaysLoading(false);
-                } else {
-                    fetchHolidays();
-                }
+                fetchHolidays();
+                
             }, []);
 
 
@@ -456,8 +471,6 @@
                 if (!hn.trim() || !firstName.trim() || !lastName.trim() || !selectedDrugId) {
                     setCalendarDays([]);
                     setMonthsToPrint([]);
-                    // Don't clear API error here
-                    // setError(''); 
                     return;
                 }
                 
@@ -465,7 +478,7 @@
                 const { startDate, endDate, numberOfDays, on, off, cycles } = formData;
                 
                 try {
-                    setError(prev => prev.includes("API Key") ? prev : ''); // Keep API key error
+                    setError(prev => (prev.includes("API") || prev.includes("สำรอง")) ? prev : '');
                     if (groupType !== 4) {
                         switch (groupType) {
                             case 1: 
@@ -540,7 +553,7 @@
                     if (e.message !== "Incomplete") setError(e.message);
                     setCalendarDays([]);
                 }
-            }, [hn, firstName, lastName, selectedDrugId, formData, freestyleConfig, appointmentDateInput]);
+            }, [hn, firstName, lastName, selectedDrugId, formData, freestyleConfig, appointmentDateInput, thaiHolidays]);
             
             useEffect(() => {
                 const printMonths = [];
@@ -604,8 +617,8 @@
                             <h2 className="text-2xl font-bold">ข้อมูลผู้ป่วยและยา</h2>
                             <button onClick={resetFullForm} className="text-sm bg-red-500 hover:bg-red-600 text-white font-semibold py-1 px-3 rounded-md transition-colors">เริ่มใหม่</button>
                           </div>
-                          {error && <p className="text-red-500 text-sm mb-4 bg-red-100 p-2 rounded">{error}</p>}
-                          {holidaysLoading && <p className="text-blue-500 text-sm mb-4 bg-blue-100 p-2 rounded">กำลังโหลดข้อมูลวันหยุด...</p>}
+                          {error && <p className="text-orange-600 text-sm mb-4 bg-orange-100 p-2 rounded-md border border-orange-200">{error}</p>}
+                          {holidaysLoading && <p className="text-blue-600 text-sm mb-4 bg-blue-100 p-2 rounded-md border border-blue-200">กำลังโหลดข้อมูลวันหยุด...</p>}
                           
                           <fieldset>
                             <div className="mb-4">
@@ -850,4 +863,3 @@
     </script>
 </body>
 </html>
-
