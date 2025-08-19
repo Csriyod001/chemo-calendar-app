@@ -8,13 +8,19 @@
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;700&display=swap" rel="stylesheet">
     <style>
         body {
             font-family: 'Sarabun', sans-serif;
         }
-        /* Custom styles for printing */
+        
         @media print {
+            @page {
+                size: A4 portrait;
+                margin: 1.5cm;
+            }
+
             body * {
                 visibility: hidden;
             }
@@ -32,11 +38,36 @@
             }
             .print-page {
                 page-break-after: always;
+                page-break-inside: avoid;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                height: 95%; 
             }
-            /* Force printing of background colors */
+            .print-page:last-child {
+                page-break-after: auto;
+            }
+
+            .bg-green-100, .bg-red-100, .bg-blue-100, .bg-slate-100, .bg-white, .bg-yellow-100, .bg-slate-200, .bg-green-200, .bg-red-200, .bg-blue-500 {
+                background-color: transparent !important;
+            }
             * {
-                -webkit-print-color-adjust: exact !important;
-                print-color-adjust: exact !important;
+                color: #000 !important;
+            }
+            .border {
+                border-color: #999 !important;
+            }
+            [data-day-type="stop"] {
+                border: 2px solid #000 !important;
+            }
+            [data-day-type="appointment"] {
+                border: 3px double #000 !important;
+            }
+             [data-day-type="take"] {
+                border: 1px solid #000 !important;
+            }
+            .day-checkbox {
+                border: 1px solid #000 !important;
             }
         }
     </style>
@@ -45,177 +76,215 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useCallback, useMemo } = React;
+        const { useState, useEffect, useCallback, useMemo, useRef } = React;
         const { createRoot } = ReactDOM;
 
         // --- Database & Constants ---
-        const DRUGS = [
-            { id: 1, name: "Abiraterone (Zytiga)", group: 1 },
-            { id: 2, name: "Axitinib", group: 1 },
-            { id: 3, name: "Ceritinib (Zykadia)", group: 1 },
-            { id: 4, name: "Dabrafenib/Trametinib", group: 1 },
-            { id: 5, name: "Enzalutamide (Xtandi)", group: 1 },
-            { id: 6, name: "Erlotinib (Tarceva)", group: 1 },
-            { id: 7, name: "Everolimus (Afinitor)", group: 1 },
-            { id: 8, name: "Gefitinib (Iressa)", group: 1 },
-            { id: 9, name: "Hydroxyurea (Hydrea)", group: 1 },
-            { id: 10, name: "Imatinib (Glivec)", group: 1 },
-            { id: 11, name: "Lapatinib (Tykerb)/letrozole", group: 1 },
-            { id: 12, name: "Lenvatinib", group: 1 },
-            { id: 13, name: "Olaparib", group: 1 },
-            { id: 14, name: "Osimertinib (Tagrisso)", group: 1 },
-            { id: 15, name: "Pazopanib (Votrient)", group: 1 },
-            { id: 16, name: "Sorafenib (Nexavar)", group: 1 },
-            { id: 17, name: "Capecitabine adjuvant", group: 2 },
-            { id: 18, name: "Capecitabine monotherapy", group: 2 },
-            { id: 19, name: "CAPEOX/XELOX", group: 2 },
-            { id: 20, name: "Capecitabine/Docetaxel", group: 2 },
-            { id: 21, name: "Cyclophosphamide (Endoxan)", group: 2 },
-            { id: 22, name: "Etoposide", group: 2 },
-            { id: 23, name: "Lapatinib (Tykerb)/capecitabine", group: 2 },
-            { id: 24, name: "Palbociclib (Ibrance)", group: 2 },
-            { id: 25, name: "Regorafenib (Stivarga)", group: 2 },
-            { id: 26, name: "Ribociclib (Kisqali)", group: 2 },
-            { id: 27, name: "Sunitinib (Sutent)", group: 2 },
-            { id: 28, name: "Tegafur/Gimeracil/Oteracil potassium (TS-ONE)", group: 2 },
-            { id: 29, name: "Temozolomide (Temodal)", group: 2 },
-            { id: 30, name: "Trifluridine/Tipiracil (Lonsurf)", group: 2 },
-            { id: 31, name: "Vinorelbine monotherapy PO", group: 3 },
-            { id: 32, name: "Capecitabine CCRT", group: 4 },
-            { id: 33, name: "Temozolomide (Temodal) - For Radiation", group: 4 },
-            { id: 34, name: "Freestyle Regimen", group: 5 }
-        ];
-
-        const THAI_HOLIDAYS = [
-            '2025-07-10', '2025-07-11', '2025-07-28', '2025-08-11', '2025-08-12', 
-            '2025-10-13', '2025-10-23', '2025-10-24', '2025-12-05', '2025-12-10', 
-            '2025-12-31', '2026-01-01', '2026-01-02', '2026-03-02', '2026-03-03', 
-            '2026-04-06', '2026-04-13', '2026-04-14', '2026-04-15', '2026-05-01', 
-            '2026-05-04', '2026-06-01', '2026-06-02', '2026-06-03', '2026-07-27', 
-            '2026-07-28', '2026-07-29', '2026-08-12', '2026-10-12', '2026-10-13', 
-            '2026-12-07', '2026-12-10', '2026-12-11', '2026-12-31'
+        const DRUGS_DATA = [
+            // Group 1: Continuous
+            { id: 1, name: "Abiraterone (Zytiga)", group: 1, description: "รับประทานยาวันละ 1 ครั้ง ต่อเนื่องทุกวัน ขณะท้องว่าง" },
+            { id: 2, name: "Axitinib", group: 1, description: "รับประทานยาวันละ 2 ครั้ง (ห่างกันประมาณ 12 ชั่วโมง) ต่อเนื่องทุกวัน" },
+            { id: 3, name: "Ceritinib (Zykadia)", group: 1, description: "รับประทานยาวันละ 1 ครั้ง ต่อเนื่องทุกวัน พร้อมอาหาร" },
+            { id: 4, name: "Dabrafenib/Trametinib", group: 1, description: "Dabrafenib: วันละ 2 ครั้ง, Trametinib: วันละ 1 ครั้ง, ทั้งสองตัวขณะท้องว่าง" },
+            { id: 5, name: "Enzalutamide (Xtandi)", group: 1, description: "รับประทานยาวันละ 1 ครั้ง ต่อเนื่องทุกวัน" },
+            { id: 6, name: "Erlotinib (Tarceva)", group: 1, description: "รับประทานยาวันละ 1 ครั้ง ต่อเนื่องทุกวัน ขณะท้องว่าง" },
+            { id: 7, name: "Everolimus (Afinitor)", group: 1, description: "รับประทานยาวันละ 1 ครั้ง ต่อเนื่องทุกวัน" },
+            { id: 8, name: "Gefitinib (Iressa)", group: 1, description: "รับประทานยาวันละ 1 ครั้ง ต่อเนื่องทุกวัน" },
+            { id: 9, name: "Hydroxyurea (Hydrea)", group: 1, description: "รับประทานต่อเนื่องทุกวัน" },
+            { id: 10, name: "Imatinib (Glivec)", group: 1, description: "รับประทานยาวันละ 1 ครั้ง ต่อเนื่องทุกวัน พร้อมอาหาร" },
+            { id: 11, name: "Lapatinib (Tykerb)/letrozole", group: 1, description: "Lapatinib: รับประทานยาวันละ 1 ครั้ง ต่อเนื่องทุกวัน, Letrozole: ตามแพทย์สั่ง" },
+            { id: 12, name: "Lenvatinib", group: 1, description: "รับประทานยาวันละ 1 ครั้ง ต่อเนื่องทุกวัน" },
+            { id: 13, name: "Olaparib", group: 1, description: "รับประทานยาวันละ 2 ครั้ง ต่อเนื่องทุกวัน" },
+            { id: 14, name: "Osimertinib (Tagrisso)", group: 1, description: "รับประทานยาวันละ 1 ครั้ง ต่อเนื่องทุกวัน" },
+            { id: 15, name: "Pazopanib (Votrient)", group: 1, description: "รับประทานยาวันละ 1 ครั้ง ต่อเนื่องทุกวัน ขณะท้องว่าง" },
+            { id: 16, name: "Sorafenib (Nexavar)", group: 1, description: "รับประทานยาวันละ 2 ครั้ง ต่อเนื่องทุกวัน ขณะท้องว่าง" },
+            
+            // Group 2: On/Off Cycles (Automated)
+            { id: 17, name: "Capecitabine adjuvant", group: 2, description: "รับประทานยาวันละ 2 ครั้ง หลังอาหาร เป็นเวลา 14 วัน แล้วหยุดยา 7 วัน (1 รอบ = 21 วัน)", autoOn: 14, autoOff: 7 },
+            { id: 18, name: "Capecitabine monotherapy", group: 2, description: "รับประทานยาวันละ 2 ครั้ง เป็นเวลา 14 วัน แล้วหยุดยา 7 วัน (1 รอบ = 21 วัน)", autoOn: 14, autoOff: 7 },
+            { id: 19, name: "CAPEOX/XELOX", group: 2, description: "Capecitabine: รับประทานยาวันละ 2 ครั้ง เป็นเวลา 14 วัน แล้วหยุดยา 7 วัน (1 รอบ = 21 วัน)", autoOn: 14, autoOff: 7 },
+            { id: 20, name: "Capecitabine/Docetaxel", group: 2, description: "Capecitabine: รับประทานยาวันละ 2 ครั้ง เป็นเวลา 14 วัน แล้วหยุดยา 7 วัน (1 รอบ = 21 วัน)", autoOn: 14, autoOff: 7 },
+            { id: 21, name: "Cyclophosphamide (Endoxan)", group: 2, description: "รับประทานยาวันละ 1 ครั้ง เป็นเวลา 14 วัน แล้วหยุดยา 7 วัน", autoOn: 14, autoOff: 7 },
+            { id: 22, name: "Etoposide", group: 2, description: "รับประทานยาวันละ 1-2 ครั้ง ติดต่อกัน 5 วัน แล้วเว้น 16 วัน", autoOn: 5, autoOff: 16 },
+            { id: 23, name: "Lapatinib (Tykerb)/capecitabine", group: 2, description: "Lapatinib: ทุกวัน, Capecitabine: 14 วัน หยุด 7 วัน", autoOn: 14, autoOff: 7 },
+            { id: 24, name: "Palbociclib (Ibrance)", group: 2, description: "รับประทานยาวันละ 1 ครั้ง เป็นเวลา 21 วัน แล้วหยุดยา 7 วัน (1 รอบ = 28 วัน)", autoOn: 21, autoOff: 7 },
+            { id: 25, name: "Regorafenib (Stivarga)", group: 2, description: "รับประทานยาวันละ 1 ครั้ง เป็นเวลา 21 วัน แล้วหยุดยา 7 วัน (1 รอบ = 28 วัน)", autoOn: 21, autoOff: 7 },
+            { id: 26, name: "Ribociclib (Kisqali)", group: 2, description: "รับประทานยาวันละ 1 ครั้ง เป็นเวลา 21 วัน แล้วหยุดยา 7 วัน (1 รอบ = 28 วัน)", autoOn: 21, autoOff: 7 },
+            { id: 27, name: "Sunitinib (Sutent)", group: 2, description: "รับประทานยาวันละ 1 ครั้ง เป็นเวลา 4 สัปดาห์ แล้วหยุดยา 2 สัปดาห์ (1 รอบ = 6 สัปดาห์)", autoOn: 28, autoOff: 14 },
+            { id: 28, name: "Tegafur/Gimeracil/Oteracil potassium (TS-ONE)", group: 2, description: "รับประทานยาวันละ 2 ครั้ง หลังอาหาร เป็นเวลา 28 วัน แล้วหยุดยา 14 วัน (1 รอบ = 42 วัน)", autoOn: 28, autoOff: 14 },
+            { id: 29, name: "Temozolomide (Temodal)", group: 2, description: "รับประทานยาวันละ 1 ครั้ง ก่อนนอน ติดต่อกัน 5 วัน แล้วหยุดยา 23 วัน (1 รอบ = 28 วัน)", autoOn: 5, autoOff: 23 },
+            { id: 30, name: "Trifluridine/Tipiracil (Lonsurf)", group: 2, description: "รับประทานยาวันละ 2 ครั้ง ในวันที่ 1-5 และ 8-12 ของแต่ละรอบการรักษา (หยุดยาวันที่ 6-7 และ 13-28)", isComplex: true },
+            
+            // Other Groups
+            { id: 31, name: "Vinorelbine monotherapy PO", group: 3, description: "รับประทานยาวันละ 1 ครั้ง สัปดาห์ละ 1 ครั้ง" },
+            { id: 32, name: "Capecitabine CCRT", group: 4, description: "รับประทานยาทุกวันจันทร์-ศุกร์ ตลอดช่วงที่ฉายรังสี" },
+            { id: 33, name: "Temozolomide (Temodal) - For Radiation", group: 4, description: "รับประทานยาทุกวัน ตลอดช่วงที่ฉายรังสี" },
+            { id: 34, name: "Freestyle Regimen", group: 5, description: "กำหนดรูปแบบการทานยาเอง" }
         ];
 
         // --- Utility Functions ---
         const isWeekend = (date) => { const day = date.getDay(); return day === 0 || day === 6; };
         
-        const isHoliday = (date) => {
-            const year = date.getFullYear();
-            const month = (date.getMonth() + 1).toString().padStart(2, '0');
-            const day = date.getDate().toString().padStart(2, '0');
-            const dateString = `${year}-${month}-${day}`;
-            return THAI_HOLIDAYS.includes(dateString);
+        // This function will now check against the state `thaiHolidays`
+        const isHoliday = (date, thaiHolidays) => {
+            const dateString = dateToYYYYMMDD(date);
+            return thaiHolidays.includes(dateString);
         };
 
-        const findNextWorkingDay = (date) => {
-            let nextDay = new Date(date);
-            nextDay.setDate(nextDay.getDate() + 1);
-            while (isWeekend(nextDay) || isHoliday(nextDay)) {
-                nextDay.setDate(nextDay.getDate() + 1);
-            }
-            return nextDay;
-        };
         const formatDate = (date) => {
             if (!date) return '';
-            return date.toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
+            const d = date instanceof Date ? date : new Date(date);
+            if (isNaN(d.getTime())) return '';
+            const day = String(d.getDate()).padStart(2, '0');
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const year = d.getFullYear();
+            return `${day}/${month}/${year}`;
         };
 
         const dateToYYYYMMDD = (date) => {
-            const year = date.getFullYear();
-            const month = (date.getMonth() + 1).toString().padStart(2, '0');
-            const day = date.getDate().toString().padStart(2, '0');
+            const d = date instanceof Date ? date : new Date(date);
+            if (isNaN(d)) return '';
+            const year = d.getFullYear();
+            const month = (d.getMonth() + 1).toString().padStart(2, '0');
+            const day = d.getDate().toString().padStart(2, '0');
             return `${year}-${month}-${day}`;
         };
         
         // --- React Components ---
 
-        const CalendarHeader = ({ hn, drugName, dose, timings, mealRelation }) => (
-            <div className="mb-4 border-b pb-4">
-                <h1 className="text-xl sm:text-2xl font-bold text-center mb-4">ปฏิทินการรับประทานยา</h1>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 text-sm text-gray-800">
-                    {/* Left Column */}
-                    <div className="mb-2 sm:mb-0">
-                        <p className="mb-1"><strong>HN:</strong> {hn || 'N/A'}</p>
-                        <p><strong>ขนาด:</strong> {dose || 'N/A'}</p>
-                    </div>
-                    {/* Right Column */}
+        const CalendarHeader = ({ hn, firstName, lastName, drugName, mealInfo, pharmacistNotes }) => (
+            <div className="mb-4 border-b pb-4 print:mb-2">
+                <h1 className="text-2xl font-bold text-center mb-4 print:text-xl print:mb-2">ปฏิทินการรับประทานยา</h1>
+                <div className="grid grid-cols-2 gap-x-8 text-sm text-gray-800 print:text-xs">
                     <div>
-                        <p className="mb-1"><strong>ยา:</strong> {drugName || 'N/A'}</p>
-                        <p><strong>ทานยา:</strong> {timings} {mealRelation}</p>
+                        <p className="mb-1"><strong>HN:</strong> {hn || ''}</p>
+                        <p><strong>ชื่อ:</strong> {firstName || ''} {lastName || ''}</p>
+                    </div>
+                    <div>
+                        <p className="mb-1"><strong>ยา:</strong> {drugName || ''}</p>
                     </div>
                 </div>
-                <p className="text-right text-xs pt-2 text-gray-600"><strong>วันที่พิมพ์:</strong> {formatDate(new Date())}</p>
+                <p className="mt-2 print:text-xs"><strong>วิธีรับประทานยา:</strong> {mealInfo || ''}</p>
+                {pharmacistNotes && <p className="mt-2 text-sm print:text-xs"><strong>คำแนะนำเพิ่มเติม:</strong> {pharmacistNotes}</p>}
+                <p className="text-right text-xs pt-2 text-gray-600 print:hidden"><strong>วันที่พิมพ์:</strong> {formatDate(new Date())}</p>
             </div>
         );
 
         const CalendarFooter = ({ nextAppointment }) => (
-            <div className="mt-4 flex flex-col sm:flex-row flex-wrap justify-between items-start gap-4">
-                <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm">
+            <div className="mt-4 flex flex-wrap justify-between items-start gap-4 print:mt-2">
+                <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm print:hidden">
                     <h4 className="font-bold w-full sm:w-auto">สัญลักษณ์:</h4>
-                    <div className="flex items-center"><div className="w-4 h-4 bg-green-200 mr-2 rounded"></div><span>ทานยา</span></div>
-                    <div className="flex items-center"><div className="w-4 h-4 bg-red-200 mr-2 rounded"></div><span>หยุดยา</span></div>
-                    <div className="flex items-center"><div className="w-4 h-4 bg-blue-500 mr-2 rounded"></div><span>วันรับยา</span></div>
-                    <div className="flex items-center"><div className="w-4 h-4 bg-slate-200 mr-2 rounded"></div><span>วันหยุด</span></div>
+                    <div className="flex items-center"><div className="w-4 h-4 bg-green-100 border border-green-300 mr-2 rounded"></div><span>ทานยา</span></div>
+                    <div className="flex items-center"><div className="w-4 h-4 bg-red-100 border border-red-300 mr-2 rounded"></div><span>หยุดยา</span></div>
+                    <div className="flex items-center"><div className="w-4 h-4 bg-blue-100 border border-blue-300 mr-2 rounded"></div><span>วันรับยา</span></div>
+                    <div className="flex items-center"><div className="w-4 h-4 bg-slate-100 border border-slate-300 mr-2 rounded"></div><span>วันหยุด</span></div>
                 </div>
                 {nextAppointment && (
-                <div className="text-right p-2 bg-yellow-100 border border-yellow-300 rounded-md w-full sm:w-auto">
-                    <p className="font-bold text-yellow-800">วันรับยาครั้งถัดไป:</p>
-                    <p className="text-lg font-semibold text-red-600">{formatDate(nextAppointment)}</p>
+                <div className="text-right p-2 bg-yellow-100 border border-yellow-300 rounded-md print:border-2 print:border-black print:p-1">
+                    <p className="font-bold text-yellow-800 print:text-sm">วันนัดรับยาครั้งถัดไป:</p>
+                    <p className="text-lg font-semibold text-red-600 print:text-base">{formatDate(nextAppointment)}</p>
                 </div>
                 )}
             </div>
         );
 
+        const DayCell = ({ dayOfMonth, dayData, mealRelationText, isWeekendOrHoliday }) => {
+            let bgColor = isWeekendOrHoliday ? 'bg-slate-100' : 'bg-white';
+            let textColor = isWeekendOrHoliday ? 'text-slate-500' : 'text-black';
 
-        const Calendar = ({ month, year, markedDays, onDayClick, isSelectable }) => {
+            if (!dayData) {
+                return (
+                    <div className={`border rounded-md p-1 text-sm h-28 flex flex-col ${bgColor} ${textColor} print:h-auto print:min-h-[2.8cm]`}>
+                        <div className="text-right font-bold">{dayOfMonth}</div>
+                    </div>
+                );
+            }
+            
+            if (dayData.type === 'take') bgColor = 'bg-green-100';
+            if (dayData.type === 'stop') bgColor = 'bg-red-100';
+            if (dayData.type === 'appointment') bgColor = 'bg-blue-100 text-blue-800';
+
+            return (
+                <div data-day-type={dayData.type} className={`border rounded-md p-1 text-sm h-28 flex flex-col ${bgColor} ${textColor} print:h-auto print:min-h-[2.8cm]`}>
+                    <div className="flex justify-between font-bold">
+                        <span>{dayData.type === 'take' ? mealRelationText : ''}</span>
+                        <span>{dayOfMonth}</span>
+                    </div>
+
+                    {dayData.type === 'appointment' && (
+                        <div className="flex-grow flex items-center justify-center font-bold">
+                            วันรับยา
+                        </div>
+                    )}
+
+                    {dayData.type === 'stop' && (
+                        <div className="mt-1 space-y-1 text-left flex-grow flex items-center">
+                            <div className="w-4 h-4 border border-current mr-2 day-checkbox"></div>
+                            <span className="font-bold">หยุด</span>
+                        </div>
+                    )}
+                    
+                    {dayData.type === 'take' && (
+                         <div className="mt-1 space-y-1 text-left flex-grow">
+                            {Object.entries(dayData.timings).map(([time, data]) => {
+                                if (data.checked && data.pills) {
+                                    const label = { morning: 'เช้า', noon: 'กลางวัน', evening: 'เย็น', bedtime: 'ก่อนนอน' }[time];
+                                    return (
+                                        <div key={time} className="flex items-center">
+                                            <div className="w-4 h-4 border border-current mr-2 day-checkbox"></div>
+                                            <span>{label}</span>
+                                            <span className="ml-auto">{data.pills} เม็ด</span>
+                                        </div>
+                                    );
+                                }
+                                return null;
+                            })}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const Calendar = ({ month, year, markedDays, mealRelationText, thaiHolidays }) => {
             const daysInMonth = new Date(year, month + 1, 0).getDate();
             const firstDayOfMonth = new Date(year, month, 1).getDay();
             const monthName = new Date(year, month).toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
 
             const calendarGrid = [];
-            for (let i = 0; i < firstDayOfMonth; i++) { calendarGrid.push(<div key={`empty-${i}`} className="border rounded-md p-1 sm:p-2"></div>); }
+            for (let i = 0; i < firstDayOfMonth; i++) { calendarGrid.push(<div key={`empty-${i}`} className="border rounded-md p-1"></div>); }
 
             for (let day = 1; day <= daysInMonth; day++) {
                 const currentDate = new Date(year, month, day);
                 const dateString = dateToYYYYMMDD(currentDate);
-
                 const mark = markedDays.find(d => d.date === dateString);
                 
-                let bgColor = 'bg-white';
-                let textColor = 'text-black';
-                
-                if (isWeekend(currentDate) || isHoliday(currentDate)) { bgColor = 'bg-slate-200'; textColor = 'text-slate-500'; }
-
-                let cursor = isSelectable ? 'cursor-pointer' : 'cursor-default';
-                let hoverBg = isSelectable ? 'hover:bg-blue-200' : '';
-
-                if (mark) {
-                    if (mark.type === 'take') { bgColor = 'bg-green-200'; textColor = 'text-green-800'; }
-                    if (mark.type === 'stop') { bgColor = 'bg-red-200'; textColor = 'text-red-800'; }
-                    if (mark.type === 'appointment') { bgColor = 'bg-blue-500'; textColor = 'text-white'; }
-                }
-
                 calendarGrid.push(
-                    <div key={day} className={`border rounded-md p-1 sm:p-2 text-center h-16 sm:h-20 flex flex-col justify-center items-center transition-colors duration-200 ${bgColor} ${textColor} ${cursor} ${hoverBg}`} onClick={() => isSelectable && onDayClick && onDayClick(currentDate)}>
-                        <span className="font-bold text-sm sm:text-base">{day}</span>
-                        {mark && <span className="text-xs mt-1 hidden sm:block">{mark.type === 'take' ? 'ทานยา' : mark.type === 'stop' ? 'หยุดยา' : 'วันรับยา'}</span>}
-                    </div>
+                    <DayCell 
+                        key={day}
+                        dayOfMonth={day}
+                        dayData={mark}
+                        mealRelationText={mealRelationText}
+                        isWeekendOrHoliday={isWeekend(currentDate) || isHoliday(currentDate, thaiHolidays)}
+                    />
                 );
             }
 
             return (
-                <div className="p-2 sm:p-4 bg-white rounded-lg shadow-none">
-                    <h3 className="text-lg sm:text-xl font-bold text-center mb-4">{monthName}</h3>
-                    <div className="grid grid-cols-7 gap-1 sm:gap-2 text-center font-semibold mb-2 text-xs sm:text-base">
+                <div className="p-4 bg-white rounded-lg shadow-none print:p-0">
+                    <h3 className="text-xl font-bold text-center mb-4 print:text-lg print:mb-2">{monthName}</h3>
+                    <div className="grid grid-cols-7 gap-2 text-center font-semibold mb-2 print:text-sm print:gap-1">
                         <div className="text-red-500">อา</div><div>จ</div><div>อ</div><div>พ</div><div>พฤ</div><div>ศ</div><div className="text-red-500">ส</div>
                     </div>
-                    <div className="grid grid-cols-7 gap-1 sm:gap-2">{calendarGrid}</div>
+                    <div className="grid grid-cols-7 gap-1">{calendarGrid}</div>
                 </div>
             );
         };
         
         const ChemoCalendarApp = () => {
+            // --- STATE MANAGEMENT ---
             const [hn, setHn] = useState('');
+            const [firstName, setFirstName] = useState('');
+            const [lastName, setLastName] = useState('');
             const [selectedDrugId, setSelectedDrugId] = useState('');
             const [formData, setFormData] = useState({});
             const [freestyleConfig, setFreestyleConfig] = useState({ subDrugId: '', onDays: '', offDays: '' });
@@ -225,28 +294,115 @@
             const [month, setMonth] = useState(new Date().getMonth());
             const [year, setYear] = useState(new Date().getFullYear());
             const [monthsToPrint, setMonthsToPrint] = useState([]);
+            const [appointmentDateInput, setAppointmentDateInput] = useState('');
+            const [pharmacistNotes, setPharmacistNotes] = useState('');
+            
+            // --- NEW STATE FOR HOLIDAYS ---
+            const [thaiHolidays, setThaiHolidays] = useState([]);
+            const [holidaysLoading, setHolidaysLoading] = useState(true);
 
-            const selectedDrug = useMemo(() => DRUGS.find(d => d.id === parseInt(selectedDrugId)), [selectedDrugId]);
+            // --- API KEY - PLEASE REPLACE WITH YOUR OWN ---
+            const API_KEY = 'AIzaSyAyV7R_yezXZEv-U6wS9xMYuDQbsS6pknQ'; // <-- 🚨 สำคัญ: กรุณาใส่ API Key ของคุณที่นี่
+            const CALENDAR_ID = 'th.th#holiday@group.v.calendar.google.com';
+
+            // --- FETCH HOLIDAYS FROM GOOGLE CALENDAR API ---
+            useEffect(() => {
+                const fetchHolidays = async () => {
+                    setHolidaysLoading(true);
+                    const currentYear = new Date().getFullYear();
+                    // Fetch for current and next year for better coverage
+                    const timeMin = `${currentYear}-01-01T00:00:00Z`;
+                    const timeMax = `${currentYear + 1}-12-31T23:59:59Z`;
+                    
+                    const url = `https://www.googleapis.com/calendar/v3/calendars/${CALENDAR_ID}/events?key=${API_KEY}&timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&maxResults=250`;
+
+                    try {
+                        const response = await fetch(url);
+                        if (!response.ok) {
+                            throw new Error(`Google API Error: ${response.statusText}`);
+                        }
+                        const data = await response.json();
+                        const holidayDates = data.items.map(item => item.start.date);
+                        setThaiHolidays(holidayDates);
+                    } catch (err) {
+                        console.error("Failed to fetch Thai holidays:", err);
+                        setError("ไม่สามารถดึงข้อมูลวันหยุดได้ กรุณาตรวจสอบ API Key");
+                    } finally {
+                        setHolidaysLoading(false);
+                    }
+                };
+
+                if(API_KEY === 'YOUR_GOOGLE_CALENDAR_API_KEY') {
+                    setError("กรุณาตั้งค่า Google Calendar API Key ในโค้ด");
+                    setHolidaysLoading(false);
+                } else {
+                    fetchHolidays();
+                }
+            }, []);
+
+
+            const selectedDrug = useMemo(() => DRUGS_DATA.find(d => d.id === parseInt(selectedDrugId)), [selectedDrugId]);
             const groupType = selectedDrug?.group;
             
-            const resetForm = useCallback(() => {
-                setFormData({ dose: '', mealRelation: 'หลังอาหาร', timings: { morning: false, noon: false, evening: false, bedtime: false }, startDate: '', endDate: '', numberOfDays: '', on: '', off: '', cycles: '' });
+            const resetFullForm = useCallback(() => {
+                setHn('');
+                setFirstName('');
+                setLastName('');
+                setSelectedDrugId(''); 
+                setPharmacistNotes('');
+            }, []);
+
+            const resetRegimenForm = useCallback(() => {
+                setFormData({ 
+                    mealRelations: { before: false, after: true, with: false }, 
+                    timings: { morning: { checked: false, pills: '' }, noon: { checked: false, pills: '' }, evening: { checked: false, pills: '' }, bedtime: { checked: false, pills: '' } }, 
+                    startDate: '', endDate: '', numberOfDays: '', on: '', off: '', cycles: '' 
+                });
                 setFreestyleConfig({ subDrugId: '', onDays: '', offDays: '' });
                 setCalendarDays([]);
                 setNextAppointment(null);
                 setMonthsToPrint([]);
+                setAppointmentDateInput('');
             }, []);
             
-            useEffect(() => { resetForm(); }, [selectedDrugId, resetForm]);
+            useEffect(() => {
+                resetRegimenForm();
+                if (selectedDrug) {
+                    if (selectedDrug.group === 2 && (selectedDrug.autoOn || selectedDrug.autoOff)) {
+                        setFormData(prev => ({ ...prev, on: selectedDrug.autoOn || '', off: selectedDrug.autoOff || '' }));
+                    }
+                }
+            }, [selectedDrugId, resetRegimenForm]);
             
             const handleInputChange = (e) => {
                 const { name, value, type, checked } = e.target;
+                const mealRelationKeys = ['before', 'after', 'with'];
+                const timingKeys = ['morning', 'noon', 'evening', 'bedtime'];
+
                 if (name.startsWith('freestyle')) {
                     const keyMap = { freestyleSubDrugId: 'subDrugId', freestyleOnDays: 'onDays', freestyleOffDays: 'offDays' };
                     setFreestyleConfig(prev => ({...prev, [keyMap[name]]: value}));
                 } else if (type === 'checkbox') {
-                    setFormData(prev => ({ ...prev, timings: { ...prev.timings, [name]: checked }}));
-                } else {
+                    if (mealRelationKeys.includes(name)) {
+                        setFormData(prev => ({ ...prev, mealRelations: { ...prev.mealRelations, [name]: checked }}));
+                    } else if (timingKeys.includes(name)) { // Handle timing checkbox
+                        setFormData(prev => {
+                            const newTimings = { ...prev.timings };
+                            newTimings[name].checked = checked;
+                            if (!checked) { // Clear pills if unchecked
+                                newTimings[name].pills = '';
+                            }
+                            return { ...prev, timings: newTimings };
+                        });
+                    }
+                } else if (e.target.dataset.timing) { // Handle timing pill input
+                    const time = e.target.dataset.timing;
+                    setFormData(prev => ({
+                        ...prev,
+                        timings: { ...prev.timings, [time]: { ...prev.timings[time], pills: value } }
+                    }));
+                }
+                else {
                     setFormData(prev => ({ ...prev, [name]: value }));
                 }
             };
@@ -254,318 +410,431 @@
             const handleDayClick = (date) => {
                  if (groupType === 4) {
                     const dateString = dateToYYYYMMDD(date);
-                     if (isWeekend(date) || isHoliday(date)) { alert('ไม่สามารถเลือกวันเสาร์-อาทิตย์ หรือวันหยุดราชการได้'); return; }
+                     if (isWeekend(date) || isHoliday(date, thaiHolidays)) { alert('ไม่สามารถเลือกวันเสาร์-อาทิตย์ หรือวันหยุดราชการได้'); return; }
                     setCalendarDays(prev => {
                         const existing = prev.find(d => d.date === dateString);
-                        return existing ? prev.filter(d => d.date !== dateString) : [...prev, { date: dateString, type: 'take' }].sort((a,b) => a.date.localeCompare(b.date));
+                        const newDays = existing ? prev.filter(d => d.date !== dateString) : [...prev, { date: dateString, type: 'take', timings: formData.timings }];
+                        return newDays.sort((a,b) => a.date.localeCompare(b.date));
                     });
                 }
             };
             
-            const getSelectedTimings = () => Object.keys(formData.timings || {}).filter(key => formData.timings[key]).map(key => ({ morning: 'เช้า', noon: 'กลางวัน', evening: 'เย็น', bedtime: 'ก่อนนอน' }[key])).join(', ');
+            const getMealInfoText = () => {
+                const timingsText = Object.entries(formData.timings || {})
+                    .filter(([_, timingData]) => timingData.checked && parseInt(timingData.pills) > 0)
+                    .map(([time, timingData]) => {
+                        const label = { morning: 'เช้า', noon: 'กลางวัน', evening: 'เย็น', bedtime: 'ก่อนนอน' }[time];
+                        return `${label} ${timingData.pills} เม็ด`;
+                    })
+                    .join(', ');
+
+                const relations = Object.keys(formData.mealRelations || {})
+                    .filter(key => formData.mealRelations[key])
+                    .map(key => ({ before: 'ก่อนอาหาร', after: 'หลังอาหาร', with: 'พร้อมอาหาร' }[key]))
+                    .join(' ');
+                
+                return `${timingsText} ${relations}`.trim();
+            };
+
+            const getMealRelationText = () => {
+                 return Object.keys(formData.mealRelations || {})
+                    .filter(key => formData.mealRelations[key])
+                    .map(key => ({ before: 'ก่อนอาหาร', after: 'หลังอาหาร', with: 'พร้อมอาหาร' }[key]))
+                    .join(' ');
+            }
             
             const getDrugNameForDisplay = () => {
                 if (!selectedDrug) return 'N/A';
                 if (groupType === 5 && freestyleConfig.subDrugId) {
-                    const subDrug = DRUGS.find(d => d.id === parseInt(freestyleConfig.subDrugId));
+                    const subDrug = DRUGS_DATA.find(d => d.id === parseInt(freestyleConfig.subDrugId));
                     return `${selectedDrug.name} (${subDrug?.name || ''})`;
                 }
                 return selectedDrug.name;
             };
 
-            const generateCalendar = () => {
-                if (!hn.trim()) { setError('กรุณากรอก HN ของผู้ป่วย'); return; }
-                if (!selectedDrugId) { setError('กรุณาเลือกยา'); return; }
+            useEffect(() => {
+                if (!hn.trim() || !firstName.trim() || !lastName.trim() || !selectedDrugId) {
+                    setCalendarDays([]);
+                    setMonthsToPrint([]);
+                    // Don't clear API error here
+                    // setError(''); 
+                    return;
+                }
                 
-                let days = [];
-                let tempCalendarDays = [];
-                let nextAppt = null;
-                const { dose, startDate, endDate, numberOfDays, on, off, cycles } = formData;
+                let regimenDays = [];
+                const { startDate, endDate, numberOfDays, on, off, cycles } = formData;
                 
                 try {
-                    setError('');
-                    switch (groupType) {
-                        case 1: 
-                            if (!startDate || !dose || !numberOfDays) throw new Error("กรุณากรอกข้อมูลให้ครบ (ขนาดยา, วันที่เริ่ม, จำนวนวัน)");
-                            let current = new Date(startDate);
-                            for (let i = 0; i < parseInt(numberOfDays); i++) {
-                                days.push({ date: dateToYYYYMMDD(current), type: 'take' });
-                                current.setDate(current.getDate() + 1);
-                            }
-                            const finalDayGroup1 = new Date(startDate);
-                            finalDayGroup1.setDate(finalDayGroup1.getDate() + parseInt(numberOfDays) -1);
-                            nextAppt = findNextWorkingDay(finalDayGroup1);
-                            tempCalendarDays = days;
-                            break;
-
-                        case 3: 
-                            if (!startDate || !dose || !endDate) throw new Error("กรุณากรอกข้อมูลให้ครบ (ขนาดยา, วันที่เริ่ม, วันที่สิ้นสุด)");
-                            let currentGroup3 = new Date(startDate);
-                            let endGroup3 = new Date(endDate);
-                            endGroup3.setHours(23, 59, 59, 999);
-                            while (currentGroup3 <= endGroup3) { 
-                                days.push({ date: dateToYYYYMMDD(currentGroup3), type: 'take' }); 
-                                currentGroup3.setDate(currentGroup3.getDate() + 1); 
-                                if (days.length > 365 * 5) throw new Error("ช่วงเวลานานเกินไป"); 
-                            }
-                            nextAppt = findNextWorkingDay(endGroup3);
-                            tempCalendarDays = days;
-                            break;
-                            
-                        case 2:
-                            if (!startDate || !on || !off || !cycles || !dose) throw new Error("กรุณากรอกข้อมูลให้ครบ");
-                            let cycleStart = new Date(startDate);
-                            for (let i = 0; i < parseInt(cycles); i++) {
-                                for (let d = 0; d < parseInt(on); d++) { days.push({ date: dateToYYYYMMDD(cycleStart), type: 'take' }); cycleStart.setDate(cycleStart.getDate() + 1); }
-                                for (let d = 0; d < parseInt(off); d++) { days.push({ date: dateToYYYYMMDD(cycleStart), type: 'stop' }); cycleStart.setDate(cycleStart.getDate() + 1); }
-                            }
-                            nextAppt = findNextWorkingDay(new Date(days[days.length-1].date));
-                            tempCalendarDays = days;
-                            break;
-
-                        case 5:
-                            const { subDrugId, onDays, offDays } = freestyleConfig;
-                            if (!subDrugId || !onDays || !offDays || !startDate || !dose) throw new Error("กรุณากรอกข้อมูล Freestyle ให้ครบ");
-                            let fsCurrent = new Date(startDate);
-                            let fsEnd = endDate ? new Date(endDate) : null;
-                            if (fsEnd) fsEnd.setHours(23, 59, 59, 999);
-                            
-                            while (!fsEnd || fsCurrent <= fsEnd) {
-                                for (let i = 0; i < parseInt(onDays) && (!fsEnd || fsCurrent <= fsEnd); i++) { days.push({ date: dateToYYYYMMDD(fsCurrent), type: 'take' }); fsCurrent.setDate(fsCurrent.getDate() + 1); }
-                                for (let i = 0; i < parseInt(offDays) && (!fsEnd || fsCurrent <= fsEnd); i++) { days.push({ date: dateToYYYYMMDD(fsCurrent), type: 'stop' }); fsCurrent.setDate(fsCurrent.getDate() + 1); }
-                                if (days.length > 365 * 5) throw new Error("ช่วงเวลานานเกินไป");
-                            }
-                            if (fsEnd) { days = days.filter(d => new Date(d.date) <= fsEnd); }
-                            const fsLastDay = days.length > 0 ? new Date(days[days.length - 1].date) : new Date(startDate);
-                            nextAppt = findNextWorkingDay(fsLastDay);
-                            tempCalendarDays = days;
-                            break;
-
-                        case 4:
-                            if (calendarDays.length === 0) throw new Error("กรุณาคลิกเลือกวันในปฏิทิน");
-                            tempCalendarDays = [...calendarDays];
-                            break;
-                        
-                        default: throw new Error("ยังไม่ได้เลือกระบบยา");
-                    }
-
-                    const printMonths = [];
-                    if (tempCalendarDays.length > 0) {
-                        const allDates = tempCalendarDays.map(d => new Date(d.date));
-                        const calStartDate = new Date(Math.min.apply(null, allDates));
-                        const calEndDate = new Date(Math.max.apply(null, allDates));
-                        
-                        let currentMonth = new Date(calStartDate.getFullYear(), calStartDate.getMonth(), 1);
-                        const lastMonth = new Date(calEndDate.getFullYear(), calEndDate.getMonth(), 1);
-
-                        while(currentMonth <= lastMonth) {
-                            printMonths.push({month: currentMonth.getMonth(), year: currentMonth.getFullYear()});
-                            currentMonth.setMonth(currentMonth.getMonth() + 1);
+                    setError(prev => prev.includes("API Key") ? prev : ''); // Keep API key error
+                    if (groupType !== 4) {
+                        switch (groupType) {
+                            case 1: 
+                                if (!startDate || !numberOfDays) throw new Error("Incomplete");
+                                let current = new Date(startDate);
+                                for (let i = 0; i < parseInt(numberOfDays); i++) {
+                                    regimenDays.push({ date: dateToYYYYMMDD(current), type: 'take', timings: formData.timings });
+                                    current.setDate(current.getDate() + 1);
+                                }
+                                break;
+                            case 3: 
+                                if (!startDate || !endDate) throw new Error("Incomplete");
+                                let currentGroup3 = new Date(startDate);
+                                let endGroup3 = new Date(endDate);
+                                endGroup3.setHours(23, 59, 59, 999);
+                                while (currentGroup3 <= endGroup3) { 
+                                    regimenDays.push({ date: dateToYYYYMMDD(currentGroup3), type: 'take', timings: formData.timings }); 
+                                    currentGroup3.setDate(currentGroup3.getDate() + 1); 
+                                    if (regimenDays.length > 365 * 5) break;
+                                }
+                                break;
+                            case 2:
+                                if (selectedDrug.isComplex) {
+                                    if (!startDate || !cycles) throw new Error("Incomplete");
+                                    let cycleStartComplex = new Date(startDate);
+                                    for (let i = 0; i < parseInt(cycles); i++) {
+                                        for (let d = 0; d < 5; d++) { regimenDays.push({ date: dateToYYYYMMDD(cycleStartComplex), type: 'take', timings: formData.timings }); cycleStartComplex.setDate(cycleStartComplex.getDate() + 1); }
+                                        for (let d = 0; d < 2; d++) { regimenDays.push({ date: dateToYYYYMMDD(cycleStartComplex), type: 'stop' }); cycleStartComplex.setDate(cycleStartComplex.getDate() + 1); }
+                                        for (let d = 0; d < 5; d++) { regimenDays.push({ date: dateToYYYYMMDD(cycleStartComplex), type: 'take', timings: formData.timings }); cycleStartComplex.setDate(cycleStartComplex.getDate() + 1); }
+                                        for (let d = 0; d < 16; d++) { regimenDays.push({ date: dateToYYYYMMDD(cycleStartComplex), type: 'stop' }); cycleStartComplex.setDate(cycleStartComplex.getDate() + 1); }
+                                    }
+                                } else {
+                                    if (!startDate || !on || !off || !cycles) throw new Error("Incomplete");
+                                    let cycleStart = new Date(startDate);
+                                    for (let i = 0; i < parseInt(cycles); i++) {
+                                        for (let d = 0; d < parseInt(on); d++) { regimenDays.push({ date: dateToYYYYMMDD(cycleStart), type: 'take', timings: formData.timings }); cycleStart.setDate(cycleStart.getDate() + 1); }
+                                        for (let d = 0; d < parseInt(off); d++) { regimenDays.push({ date: dateToYYYYMMDD(cycleStart), type: 'stop' }); cycleStart.setDate(cycleStart.getDate() + 1); }
+                                    }
+                                }
+                                break;
+                            case 5:
+                                const { subDrugId, onDays, offDays } = freestyleConfig;
+                                if (!subDrugId || !onDays || !offDays || !startDate) throw new Error("Incomplete");
+                                let fsCurrent = new Date(startDate);
+                                let fsEnd = endDate ? new Date(endDate) : null;
+                                if (fsEnd) fsEnd.setHours(23, 59, 59, 999);
+                                while (!fsEnd || fsCurrent <= fsEnd) {
+                                    for (let i = 0; i < parseInt(onDays) && (!fsEnd || fsCurrent <= fsEnd); i++) { regimenDays.push({ date: dateToYYYYMMDD(fsCurrent), type: 'take', timings: formData.timings }); fsCurrent.setDate(fsCurrent.getDate() + 1); }
+                                    for (let i = 0; i < parseInt(offDays) && (!fsEnd || fsCurrent <= fsEnd); i++) { regimenDays.push({ date: dateToYYYYMMDD(fsCurrent), type: 'stop' }); fsCurrent.setDate(fsCurrent.getDate() + 1); }
+                                    if (regimenDays.length > 365 * 5) break;
+                                }
+                                if (fsEnd) { regimenDays = regimenDays.filter(d => new Date(d.date) <= fsEnd); }
+                                break;
                         }
                     }
-                    setMonthsToPrint(printMonths);
 
-                    if(nextAppt) { 
-                        tempCalendarDays.push({ date: dateToYYYYMMDD(nextAppt), type: 'appointment' }); 
-                        setNextAppointment(nextAppt); 
+                    if (appointmentDateInput) {
+                        const apptDate = new Date(appointmentDateInput);
+                        if (!isNaN(apptDate)) {
+                            regimenDays.push({ date: dateToYYYYMMDD(apptDate), type: 'appointment' });
+                            setNextAppointment(apptDate);
+                        } else {
+                            setNextAppointment(null);
+                        }
                     } else {
                         setNextAppointment(null);
                     }
-                    setCalendarDays(tempCalendarDays);
-                } catch (e) { setError(e.message); }
-            };
-            
-            const handlePrint = () => {
-                // A small timeout helps ensure the DOM is updated before printing
-                setTimeout(() => {
-                    window.print();
-                }, 100);
-            };
 
+                    setCalendarDays(regimenDays.sort((a, b) => a.date.localeCompare(b.date)));
+
+                } catch (e) {
+                    if (e.message !== "Incomplete") setError(e.message);
+                    setCalendarDays([]);
+                }
+            }, [hn, firstName, lastName, selectedDrugId, formData, freestyleConfig, appointmentDateInput]);
+            
+            useEffect(() => {
+                const printMonths = [];
+                if (calendarDays.length > 0) {
+                    const allDates = calendarDays.map(d => new Date(d.date));
+                    const calStartDate = new Date(Math.min.apply(null, allDates));
+                    const calEndDate = new Date(Math.max.apply(null, allDates));
+                    let currentMonth = new Date(calStartDate.getFullYear(), calStartDate.getMonth(), 1);
+                    const lastMonth = new Date(calEndDate.getFullYear(), calEndDate.getMonth(), 1);
+                    while(currentMonth <= lastMonth) {
+                        printMonths.push({month: currentMonth.getMonth(), year: currentMonth.getFullYear()});
+                        currentMonth.setMonth(currentMonth.getMonth() + 1);
+                    }
+                }
+                setMonthsToPrint(printMonths);
+            }, [calendarDays]);
+
+
+            const handlePrint = () => { setTimeout(() => { window.print(); }, 100); };
             const changeMonth = (delta) => {
               let d = new Date(year, month);
               d.setMonth(d.getMonth() + delta);
               setMonth(d.getMonth()); setYear(d.getFullYear());
             };
 
-            const freestyleDrugOptions = useMemo(() => DRUGS.filter(d => d.group === 1 || d.group === 2), []);
+            const freestyleDrugOptions = useMemo(() => DRUGS_DATA.filter(d => d.group === 1 || d.group === 2), []);
             
-            const totalDoseGroup1 = useMemo(() => {
-                if (groupType === 1 && formData.dose && formData.numberOfDays) {
-                    const dose = parseInt(formData.dose);
-                    const days = parseInt(formData.numberOfDays);
-                    if (!isNaN(dose) && !isNaN(days)) return dose * days;
-                }
-                return 0;
-            }, [formData.dose, formData.numberOfDays, groupType]);
-            
-            const totalDoseGroup2 = useMemo(() => {
-                if (groupType === 2 && formData.dose && formData.on && formData.cycles) {
-                    const dose = parseInt(formData.dose);
-                    const onDays = parseInt(formData.on);
-                    const cycles = parseInt(formData.cycles);
-                    if (!isNaN(dose) && !isNaN(onDays) && !isNaN(cycles)) return dose * onDays * cycles;
-                }
-                return 0;
-            }, [formData.dose, formData.on, formData.cycles, groupType]);
-            
-            const totalDoseGroup3 = useMemo(() => {
-                if (groupType === 3 && formData.dose && formData.startDate && formData.endDate) {
-                   try {
-                        const dose = parseInt(formData.dose);
-                        const start = new Date(formData.startDate);
-                        const end = new Date(formData.endDate);
-                        if(isNaN(dose) || start > end) return 0;
-                        const diffTime = Math.abs(end - start);
-                        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
-                        return dose * diffDays;
-                   } catch (e) { return 0; }
-                }
-                return 0;
-            }, [formData.dose, formData.startDate, formData.endDate, groupType]);
+            const pillsPerDay = useMemo(() => {
+                const { timings } = formData;
+                if (!timings) return 0;
+                return Object.values(timings).reduce((sum, timingData) => sum + (timingData.checked ? (parseInt(timingData.pills) || 0) : 0), 0);
+            }, [formData.timings]);
 
-            const totalDoseFreestyle = useMemo(() => {
-                if (groupType !== 5 || !formData.dose || !formData.startDate || !formData.endDate || !freestyleConfig.onDays || !freestyleConfig.offDays) {
-                    return 0;
-                }
-                try {
-                    const dose = parseInt(formData.dose);
-                    const onDays = parseInt(freestyleConfig.onDays);
-                    if (isNaN(dose) || isNaN(onDays) || onDays <= 0) return 0;
-
-                    let takeDaysCount = 0;
-                    let currentDate = new Date(formData.startDate);
-                    const finalDate = new Date(formData.endDate);
-                    finalDate.setHours(23, 59, 59, 999);
-
-                    while (currentDate <= finalDate) {
-                        for (let i = 0; i < onDays && currentDate <= finalDate; i++) {
-                            takeDaysCount++;
-                            currentDate.setDate(currentDate.getDate() + 1);
-                        }
-                        const offDays = parseInt(freestyleConfig.offDays) || 0;
-                        for (let i = 0; i < offDays && currentDate <= finalDate; i++) {
-                            currentDate.setDate(currentDate.getDate() + 1);
-                        }
-                    }
-                    return takeDaysCount * dose;
-                } catch (e) { return 0; }
-            }, [groupType, formData.dose, formData.startDate, formData.endDate, freestyleConfig.onDays, freestyleConfig.offDays]);
+            const totalDoseGroup1 = useMemo(() => { if (groupType === 1 && pillsPerDay > 0 && formData.numberOfDays) { const n=parseInt(formData.numberOfDays); return !isNaN(n)?pillsPerDay*n:0; } return 0; }, [pillsPerDay, formData.numberOfDays, groupType]);
+            const totalDoseGroup2 = useMemo(() => { if (groupType === 2 && pillsPerDay > 0 && formData.on && formData.cycles) { const o=parseInt(formData.on), c=parseInt(formData.cycles); return !isNaN(o)&&!isNaN(c)?pillsPerDay*o*c:0; } return 0; }, [pillsPerDay, formData.on, formData.cycles, groupType]);
+            const totalDoseGroup3 = useMemo(() => { if (groupType === 3 && pillsPerDay > 0 && formData.startDate && formData.endDate) { try { const s=new Date(formData.startDate), e=new Date(formData.endDate); if(s>e)return 0; return pillsPerDay*(Math.ceil(Math.abs(e-s)/(1e3*60*60*24))+1); } catch (e){return 0;} } return 0; }, [pillsPerDay, formData.startDate, formData.endDate, groupType]);
+            const totalDoseFreestyle = useMemo(() => { if(groupType!==5||pillsPerDay<=0||!formData.startDate||!freestyleConfig.onDays||!freestyleConfig.offDays)return 0; try{ let takeDaysCount=0,c=new Date(formData.startDate),f=formData.endDate?new Date(formData.endDate):null; if(f)f.setHours(23,59,59,999); const on=parseInt(freestyleConfig.onDays),off=parseInt(freestyleConfig.offDays)||0; if(isNaN(on)||on<=0)return 0; while(!f||c<=f){for(let i=0;i<on&&(!f||c<=f);i++){takeDaysCount++;c.setDate(c.getDate()+1);} for(let i=0;i<off&&(!f||c<=f);i++){c.setDate(c.getDate()+1);}} return takeDaysCount*pillsPerDay; }catch(e){return 0;} }, [groupType, pillsPerDay, formData.startDate, formData.endDate, freestyleConfig.onDays, freestyleConfig.offDays]);
             
+            const totalPills = useMemo(() => {
+                switch (groupType) {
+                    case 1: return totalDoseGroup1;
+                    case 2: return totalDoseGroup2;
+                    case 3: return totalDoseGroup3;
+                    case 5: return totalDoseFreestyle;
+                    default: return 0;
+                }
+            }, [groupType, totalDoseGroup1, totalDoseGroup2, totalDoseGroup3, totalDoseFreestyle]);
+            
+            const isPatientInfoFilled = hn.trim() && firstName.trim() && lastName.trim();
+            const isDrugSelected = !!selectedDrugId;
+
             return (
               <div>
                 <header className="bg-white shadow-md p-4 no-print">
-                  <div className="container mx-auto">
-                    <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">ระบบจัดทำปฏิทินยาเคมีบำบัด</h1>
-                  </div>
+                  <div className="container mx-auto"><h1 className="text-3xl font-bold text-gray-800">ระบบจัดทำปฏิทินยาเคมีบำบัด</h1></div>
                 </header>
-                <main className="container mx-auto p-2 sm:p-4">
+                <main className="container mx-auto p-4">
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                      <div className="lg:col-span-1 bg-white p-4 sm:p-6 rounded-lg shadow-lg no-print h-fit">
-                          <h2 className="text-xl sm:text-2xl font-bold mb-4">สร้างปฏิทิน</h2>
-                          <div className="mb-4">
-                            <label className="block text-gray-700 font-semibold mb-2">HN ผู้ป่วย</label>
-                            <input type="text" value={hn} onChange={(e) => setHn(e.target.value)} className="w-full p-2 border rounded" placeholder="กรอก HN"/>
+                      <div className="lg:col-span-1 bg-white p-6 rounded-lg shadow-lg no-print h-fit">
+                          <div className="flex justify-between items-center mb-4">
+                            <h2 className="text-2xl font-bold">ข้อมูลผู้ป่วยและยา</h2>
+                            <button onClick={resetFullForm} className="text-sm bg-red-500 hover:bg-red-600 text-white font-semibold py-1 px-3 rounded-md transition-colors">เริ่มใหม่</button>
                           </div>
-                          <div className="mb-4">
-                              <label className="block text-gray-700 font-semibold mb-2">1. เลือกยา/สูตรยา</label>
-                              <select value={selectedDrugId} onChange={(e) => setSelectedDrugId(e.target.value)} className="w-full p-2 border rounded">
-                                  <option value="">-- กรุณาเลือก --</option>
-                                  {DRUGS.map(drug => <option key={drug.id} value={drug.id}>กลุ่ม {drug.group}: {drug.name}</option>)}
-                              </select>
-                          </div>
+                          {error && <p className="text-red-500 text-sm mb-4 bg-red-100 p-2 rounded">{error}</p>}
+                          {holidaysLoading && <p className="text-blue-500 text-sm mb-4 bg-blue-100 p-2 rounded">กำลังโหลดข้อมูลวันหยุด...</p>}
                           
-                          {selectedDrug && (
+                          <fieldset>
                             <div className="mb-4">
-                                <label className="block text-gray-700 font-semibold mb-2">2. กำหนดเงื่อนไข (กลุ่ม {groupType})</label>
-                                <input type="text" name="dose" placeholder="ขนาดรับประทาน (Dose)" value={formData.dose || ''} onChange={handleInputChange} className="p-2 border rounded w-full mb-2" />
-                                
-                                {groupType === 5 && (
-                                    <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-md">
-                                        <label className="block text-sm font-semibold text-indigo-800 mb-2">ตั้งค่า Freestyle</label>
-                                        <select name="freestyleSubDrugId" value={freestyleConfig.subDrugId} onChange={handleInputChange} className="w-full p-2 border rounded mb-2">
-                                            <option value="">-- เลือกยาสำหรับสูตร --</option>
-                                            {freestyleDrugOptions.map(drug => <option key={`fs-${drug.id}`} value={drug.id}>กลุ่ม {drug.group}: {drug.name}</option>)}
-                                        </select>
-                                        <input type="date" name="startDate" value={formData.startDate || ''} onChange={handleInputChange} className="p-2 border rounded w-full mb-2" />
-                                        <input type="date" name="endDate" value={formData.endDate || ''} onChange={handleInputChange} className="p-2 border rounded w-full mb-2" title="วันสิ้นสุด (จำเป็นสำหรับคำนวณขนาดทั้งหมด)" />
-                                        <div className="grid grid-cols-2 gap-2">
-                                            <input type="number" name="freestyleOnDays" placeholder="ทาน (วัน)" value={freestyleConfig.onDays} onChange={handleInputChange} className="p-2 border rounded" />
-                                            <input type="number" name="freestyleOffDays" placeholder="เว้น (วัน)" value={freestyleConfig.offDays} onChange={handleInputChange} className="p-2 border rounded" />
-                                        </div>
-                                        {totalDoseFreestyle > 0 && <div className="mt-2 p-2 bg-green-100 rounded-md text-center text-green-800 font-semibold">ขนาดทั้งหมด: {totalDoseFreestyle}</div>}
-                                    </div>
-                                )}
-                                
-                                {groupType === 1 && <>
-                                    <input type="date" name="startDate" value={formData.startDate || ''} onChange={handleInputChange} className="p-2 border rounded w-full mb-2" />
-                                    <input type="number" name="numberOfDays" placeholder="จำนวนวัน" value={formData.numberOfDays || ''} onChange={handleInputChange} className="p-2 border rounded w-full mb-2" />
-                                    {totalDoseGroup1 > 0 && <div className="p-2 bg-green-100 rounded-md text-center text-green-800 font-semibold">ขนาดทั้งหมด: {totalDoseGroup1}</div>}
-                                </>}
-                                { groupType === 3 && <>
-                                    <input type="date" name="startDate" value={formData.startDate || ''} onChange={handleInputChange} className="p-2 border rounded w-full mb-2" />
-                                    <input type="date" name="endDate" value={formData.endDate || ''} onChange={handleInputChange} className="p-2 border rounded w-full mb-2" title="วันสิ้นสุด (ถ้ามี)" />
-                                    {totalDoseGroup3 > 0 && <div className="mt-2 p-2 bg-green-100 rounded-md text-center text-green-800 font-semibold">ขนาดทั้งหมด: {totalDoseGroup3}</div>}
-                                </>}
-                                { groupType === 2 && <>
-                                    <input type="date" name="startDate" value={formData.startDate || ''} onChange={handleInputChange} className="p-2 border rounded w-full mb-2" />
-                                    <div className="grid grid-cols-3 gap-2">
-                                        <input type="number" name="on" placeholder="ทาน (วัน)" value={formData.on || ''} onChange={handleInputChange} className="p-2 border rounded" />
-                                        <input type="number" name="off" placeholder="หยุด (วัน)" value={formData.off || ''} onChange={handleInputChange} className="p-2 border rounded" />
-                                        <input type="number" name="cycles" placeholder="รอบ" value={formData.cycles || ''} onChange={handleInputChange} className="p-2 border rounded" />
-                                    </div>
-                                    {totalDoseGroup2 > 0 && <div className="mt-2 p-2 bg-green-100 rounded-md text-center text-green-800 font-semibold">ขนาดทั้งหมด: {totalDoseGroup2}</div>}
-                                </>}
-                                { groupType === 4 && <p className="text-sm text-center bg-blue-100 p-2 rounded">กรุณาคลิกเลือกวันที่ต้องรับยาบนปฏิทิน</p> }
-                                
-                                <div className="mt-4 p-3 bg-slate-50 rounded-md border">
-                                    <label className="block text-gray-700 font-semibold mb-2">3. กำหนดเวลาทานยา</label>
-                                    <select name="mealRelation" value={formData.mealRelation || 'หลังอาหาร'} onChange={handleInputChange} className="w-full p-2 border rounded mb-2">
-                                       <option value="หลังอาหาร">หลังอาหาร</option><option value="ก่อนอาหาร">ก่อนอาหาร</option>
-                                    </select>
-                                    <div className="grid grid-cols-2 gap-2 text-sm">
-                                        {['morning', 'noon', 'evening', 'bedtime'].map(time => (
-                                           <label key={time} className="flex items-center space-x-2 p-2 bg-white rounded-md border">
-                                                <input type="checkbox" name={time} checked={formData.timings?.[time] || false} onChange={handleInputChange} />
-                                                <span>{{ morning: 'เช้า', noon: 'กลางวัน', evening: 'เย็น', bedtime: 'ก่อนนอน' }[time]}</span>
-                                           </label>
-                                        ))}
-                                    </div>
-                                </div>
+                              <label className="block text-gray-700 font-semibold mb-2">HN ผู้ป่วย</label>
+                              <input type="text" value={hn} onChange={(e) => setHn(e.target.value)} className="w-full p-2 border rounded" />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4 mb-4">
+                              <div>
+                                  <label className="block text-gray-700 font-semibold mb-2">ชื่อ</label>
+                                  <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} className="w-full p-2 border rounded" />
+                              </div>
+                              <div>
+                                  <label className="block text-gray-700 font-semibold mb-2">นามสกุล</label>
+                                  <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} className="w-full p-2 border rounded" />
+                              </div>
+                            </div>
+                          </fieldset>
+                          
+                          {!isPatientInfoFilled && (
+                            <div className="mt-4 p-3 bg-yellow-100 border-l-4 border-yellow-400 text-yellow-700">
+                                <p className="font-bold">ขั้นตอนถัดไป</p>
+                                <p>กรุณากรอกข้อมูลผู้ป่วย (HN, ชื่อ, นามสกุล) ให้ครบถ้วน</p>
                             </div>
                           )}
 
-                          {error && <p className="text-red-500 text-sm mb-4 bg-red-100 p-2 rounded">{error}</p>}
-                          <button onClick={generateCalendar} className="w-full bg-green-600 text-white font-bold py-3 px-4 rounded-md hover:bg-green-700 transition" disabled={!selectedDrug || !hn}>สร้าง / อัปเดตปฏิทิน</button>
+                          <fieldset disabled={!isPatientInfoFilled} className="disabled:opacity-50 disabled:cursor-not-allowed mt-4 space-y-4">
+                            <div>
+                                <label className="block text-gray-700 font-semibold mb-2">1. เลือกยา/สูตรยา</label>
+                                <select value={selectedDrugId} onChange={(e) => setSelectedDrugId(e.target.value)} className="w-full p-2 border rounded">
+                                    <option value="">-- กรุณาเลือก --</option>
+                                    {DRUGS_DATA.map(drug => <option key={drug.id} value={drug.id}>กลุ่ม {drug.group}: {drug.name}</option>)}
+                                </select>
+                            </div>
+                            
+                            {isPatientInfoFilled && !isDrugSelected && (
+                                <div className="p-3 bg-yellow-100 border-l-4 border-yellow-400 text-yellow-700">
+                                    <p className="font-bold">ขั้นตอนถัดไป</p>
+                                    <p>กรุณาเลือกยา/สูตรยา</p>
+                                </div>
+                            )}
+                            
+                            {selectedDrug && (
+                              <div className="space-y-4">
+                                  <div>
+                                    <label className="block text-gray-700 font-semibold mb-2">2. กำหนดเงื่อนไข (กลุ่ม {groupType})</label>
+                                    <div className="text-sm text-blue-800 bg-blue-50 p-3 rounded-md mb-3 border border-blue-200">
+                                        <h4 className="font-bold">วิธีการใช้ยา:</h4>
+                                        <p>{selectedDrug.description || 'ไม่มีข้อมูล'}</p>
+                                    </div>
+                                    
+                                    {groupType === 5 && (
+                                        <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-md">
+                                            <label className="block text-sm font-semibold text-indigo-800 mb-2">ตั้งค่า Freestyle</label>
+                                            <div className="mb-2">
+                                                <label className="text-sm font-medium text-gray-600 mb-1 block">เลือกยาสำหรับสูตร</label>
+                                                <select name="freestyleSubDrugId" value={freestyleConfig.subDrugId} onChange={handleInputChange} className="w-full p-2 border rounded">
+                                                    <option value="">-- เลือกยาสำหรับสูตร --</option>
+                                                    {freestyleDrugOptions.map(drug => <option key={`fs-${drug.id}`} value={drug.id}>กลุ่ม {drug.group}: {drug.name}</option>)}
+                                                </select>
+                                            </div>
+                                            <div className="mb-2">
+                                                <label className="text-sm font-medium text-gray-600 mb-1 block">วันที่เริ่ม</label>
+                                                <input type="date" name="startDate" value={formData.startDate || ''} onChange={handleInputChange} className="p-2 border rounded w-full" />
+                                            </div>
+                                            <div className="mb-2">
+                                                <label className="text-sm font-medium text-gray-600 mb-1 block">วันสิ้นสุด</label>
+                                                <input type="date" name="endDate" value={formData.endDate || ''} onChange={handleInputChange} className="p-2 border rounded w-full" />
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <div>
+                                                    <label className="text-sm font-medium text-gray-600 mb-1 block">ทาน (วัน)</label>
+                                                    <input type="number" name="freestyleOnDays" value={freestyleConfig.onDays} onChange={handleInputChange} className="p-2 border rounded w-full" min="0" onWheel={(e) => e.target.blur()} />
+                                                </div>
+                                                <div>
+                                                    <label className="text-sm font-medium text-gray-600 mb-1 block">เว้น (วัน)</label>
+                                                    <input type="number" name="freestyleOffDays" value={freestyleConfig.offDays} onChange={handleInputChange} className="p-2 border rounded w-full" min="0" onWheel={(e) => e.target.blur()} />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    
+                                    {groupType === 1 && <>
+                                        <div className="mb-2">
+                                            <label className="text-sm font-medium text-gray-600 mb-1 block">วันที่เริ่ม</label>
+                                            <input type="date" name="startDate" value={formData.startDate || ''} onChange={handleInputChange} className="p-2 border rounded w-full" />
+                                        </div>
+                                        <div className="mb-2">
+                                            <label className="text-sm font-medium text-gray-600 mb-1 block">จำนวนวัน</label>
+                                            <input type="number" name="numberOfDays" value={formData.numberOfDays || ''} onChange={handleInputChange} className="p-2 border rounded w-full" min="0" onWheel={(e) => e.target.blur()} />
+                                        </div>
+                                    </>}
+                                    {groupType === 3 && <>
+                                        <div className="mb-2">
+                                            <label className="text-sm font-medium text-gray-600 mb-1 block">วันที่เริ่ม</label>
+                                            <input type="date" name="startDate" value={formData.startDate || ''} onChange={handleInputChange} className="p-2 border rounded w-full" />
+                                        </div>
+                                        <div className="mb-2">
+                                            <label className="text-sm font-medium text-gray-600 mb-1 block">วันสิ้นสุด</label>
+                                            <input type="date" name="endDate" value={formData.endDate || ''} onChange={handleInputChange} className="p-2 border rounded w-full" />
+                                        </div>
+                                    </>}
+                                    {groupType === 2 && <>
+                                        <div className="mb-2">
+                                            <label className="text-sm font-medium text-gray-600 mb-1 block">วันที่เริ่ม</label>
+                                            <input type="date" name="startDate" value={formData.startDate || ''} onChange={handleInputChange} className="p-2 border rounded w-full" />
+                                        </div>
+                                        <div className="grid grid-cols-3 gap-2">
+                                            <div>
+                                                <label className="text-sm font-medium text-gray-600 mb-1 block">ทาน (วัน)</label>
+                                                <input type="number" name="on" value={formData.on || ''} onChange={handleInputChange} className="p-2 border rounded w-full" readOnly={selectedDrug && !!selectedDrug.autoOn} min="0" onWheel={(e) => e.target.blur()} />
+                                            </div>
+                                            <div>
+                                                <label className="text-sm font-medium text-gray-600 mb-1 block">หยุด (วัน)</label>
+                                                <input type="number" name="off" value={formData.off || ''} onChange={handleInputChange} className="p-2 border rounded w-full" readOnly={selectedDrug && !!selectedDrug.autoOff} min="0" onWheel={(e) => e.target.blur()} />
+                                            </div>
+                                            <div>
+                                                <label className="text-sm font-medium text-gray-600 mb-1 block">รอบ</label>
+                                                <input type="number" name="cycles" value={formData.cycles || ''} onChange={handleInputChange} className="p-2 border rounded w-full" min="0" onWheel={(e) => e.target.blur()} />
+                                            </div>
+                                        </div>
+                                    </>}
+                                    { groupType === 4 && <p className="text-sm text-center bg-blue-100 p-2 rounded">กรุณาคลิกเลือกวันที่ต้องรับยาบนปฏิทิน</p> }
+                                  </div>
+                                  
+                                  <div className="mt-4 p-3 bg-slate-50 rounded-md border">
+                                      <label className="block text-gray-700 font-semibold mb-2">3. กำหนดเวลาทานยา</label>
+                                      <div className="mb-3">
+                                          <p className="text-sm font-medium text-gray-600 mb-2">ความสัมพันธ์กับมื้ออาหาร:</p>
+                                          <div className="grid grid-cols-3 gap-2 text-sm">
+                                              {[{key: 'before', label: 'ก่อนอาหาร'}, {key: 'after', label: 'หลังอาหาร'}, {key: 'with', label: 'พร้อมอาหาร'}].map(item => (
+                                                 <label key={item.key} className="flex items-center space-x-2 p-2 bg-white rounded-md border cursor-pointer">
+                                                      <input type="checkbox" name={item.key} checked={formData.mealRelations?.[item.key] || false} onChange={handleInputChange} />
+                                                      <span>{item.label}</span>
+                                                 </label>
+                                              ))}
+                                          </div>
+                                      </div>
+                                      <hr className="my-3"/>
+                                      <div>
+                                           <p className="text-sm font-medium text-gray-600 mb-2">ช่วงเวลา:</p>
+                                           <div className="grid grid-cols-2 gap-4 text-sm">
+                                              {['morning', 'noon', 'evening', 'bedtime'].map(time => (
+                                                 <div key={time} className="flex items-center space-x-2">
+                                                      <input 
+                                                          type="checkbox" 
+                                                          name={time} 
+                                                          checked={formData.timings?.[time]?.checked || false} 
+                                                          onChange={handleInputChange} 
+                                                          id={`checkbox-${time}`}
+                                                          className="h-4 w-4 rounded"
+                                                      />
+                                                      <label htmlFor={`checkbox-${time}`} className="flex-1 text-gray-700">{{ morning: 'เช้า', noon: 'กลางวัน', evening: 'เย็น', bedtime: 'ก่อนนอน' }[time]}</label>
+                                                      <input 
+                                                          type="number" 
+                                                          data-timing={time}
+                                                          value={formData.timings?.[time]?.pills || ''} 
+                                                          onChange={handleInputChange} 
+                                                          className="p-1 border rounded w-20"
+                                                          placeholder="เม็ด"
+                                                          disabled={!formData.timings?.[time]?.checked}
+                                                          min="0"
+                                                          onWheel={(e) => e.target.blur()}
+                                                      />
+                                                 </div>
+                                              ))}
+                                          </div>
+                                      </div>
+                                  </div>
+
+                                  {totalPills > 0 && (
+                                      <div className="mt-4 p-2 bg-green-100 rounded-md text-center text-green-800 font-semibold">
+                                          จำนวนเม็ดยา: {totalPills}
+                                      </div>
+                                  )}
+
+                                  <div className="mt-4">
+                                      <label className="block text-gray-700 font-semibold mb-2">4. วันนัดรับยา (ถ้ามี)</label>
+                                      <input 
+                                          type="date" 
+                                          name="appointmentDateInput" 
+                                          value={appointmentDateInput} 
+                                          onChange={(e) => setAppointmentDateInput(e.target.value)} 
+                                          className="p-2 border rounded w-full" 
+                                      />
+                                      <p className="text-xs text-gray-500 mt-1">กรอกวันที่นัดหมายเพื่อแสดงบนปฏิทิน</p>
+                                  </div>
+
+                                  <div className="mt-4">
+                                      <label className="block text-gray-700 font-semibold mb-2">5. ข้อความเพิ่มเติม</label>
+                                      <textarea
+                                          value={pharmacistNotes}
+                                          onChange={(e) => setPharmacistNotes(e.target.value)}
+                                          className="w-full p-2 border rounded"
+                                          rows="3"
+                                          placeholder="คำแนะนำเพิ่มเติมจากเภสัชกร..."
+                                      />
+                                  </div>
+                              </div>
+                            )}
+                          </fieldset>
                       </div>
 
                       <div className="lg:col-span-2">
                         <div className="bg-white p-4 rounded-lg shadow-lg no-print">
+                           <CalendarHeader hn={hn} firstName={firstName} lastName={lastName} drugName={getDrugNameForDisplay()} mealInfo={getMealInfoText()} pharmacistNotes={pharmacistNotes} />
                            <div className="flex justify-between items-center mb-4">
                               <button onClick={() => changeMonth(-1)} className="no-print bg-gray-200 px-4 py-2 rounded-md hover:bg-gray-300">&lt; เดือนก่อนหน้า</button>
                               <button onClick={() => changeMonth(1)} className="no-print bg-gray-200 px-4 py-2 rounded-md hover:bg-gray-300">เดือนถัดไป &gt;</button>
                            </div>
-                           <Calendar month={month} year={year} markedDays={calendarDays} onDayClick={handleDayClick} isSelectable={groupType === 4} />
-                           <CalendarFooter nextAppointment={nextAppointment} />
+                           <Calendar month={month} year={year} markedDays={calendarDays} onDayClick={handleDayClick} isSelectable={groupType === 4} mealRelationText={getMealRelationText()} thaiHolidays={thaiHolidays} />
                         </div>
                         {calendarDays.length > 0 && <div className="text-center mt-4 no-print"><button onClick={handlePrint} className="bg-purple-600 text-white font-bold py-2 px-6 rounded-md hover:bg-purple-700 transition">พิมพ์</button></div>}
                       </div>
                   </div>
                 </main>
 
-                {/* Hidden container for printing */}
-                <div id="print-container" className="hidden print:block">
+                <div className="hidden print:block" id="print-container">
                     {monthsToPrint.map((date, index) => (
-                        <div key={`${date.year}-${date.month}`} className="print-page p-8">
-                             <CalendarHeader hn={hn} drugName={getDrugNameForDisplay()} dose={formData.dose} timings={getSelectedTimings()} mealRelation={formData.mealRelation} />
+                        <div key={`${date.year}-${date.month}`} className="print-page">
+                             <CalendarHeader hn={hn} firstName={firstName} lastName={lastName} drugName={getDrugNameForDisplay()} mealInfo={getMealInfoText()} pharmacistNotes={pharmacistNotes} />
                              <Calendar 
                                 month={date.month} 
                                 year={date.year}
                                 markedDays={calendarDays}
                                 onDayClick={() => {}} 
                                 isSelectable={false} 
+                                mealRelationText={getMealRelationText()}
+                                thaiHolidays={thaiHolidays}
                             />
-                            {/* Show footer only on the last page */}
                             {index === monthsToPrint.length - 1 && <CalendarFooter nextAppointment={nextAppointment} />}
                         </div>
                     ))}
