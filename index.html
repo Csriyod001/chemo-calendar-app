@@ -192,10 +192,10 @@
             );
         };
 
-        const CalendarHeader = ({ hn, firstName, lastName, drugName, mealInfo, pharmacistNotes }) => (
+        const CalendarHeader = ({ hn, firstName, lastName, drugName, mealInfo, pharmacistNotes, takeDaysCount, totalPills }) => (
             <div className="mb-4 border-b pb-4 print:mb-2">
-                <h1 className="text-2xl font-bold text-center mb-4 print:text-xl print:mb-2">ปฏิทินการรับประทานยา</h1>
-                <div className="grid grid-cols-2 gap-x-8 text-sm text-gray-800 print:text-xs">
+                <h1 className="text-3xl font-bold text-center mb-4 print:text-2xl print:mb-2">ปฏิทินการรับประทานยา</h1>
+                <div className="grid grid-cols-2 gap-x-8 text-gray-800 text-base print:text-base">
                     <div>
                         <p className="mb-1"><strong>HN:</strong> {hn || ''}</p>
                         <p><strong>ชื่อ:</strong> {firstName || ''} {lastName || ''}</p>
@@ -204,8 +204,19 @@
                         <p className="mb-1"><strong>ยา:</strong> {drugName || ''}</p>
                     </div>
                 </div>
-                <p className="mt-2 print:text-xs"><strong>วิธีรับประทานยา:</strong> {mealInfo || ''}</p>
-                {pharmacistNotes && <p className="mt-2 text-sm print:text-xs"><strong>คำแนะนำเพิ่มเติม:</strong> {pharmacistNotes}</p>}
+                {totalPills > 0 && (
+                    <div className="mt-2 pt-2 border-t grid grid-cols-2 gap-x-8 text-base print:text-base">
+                        <p><strong>จำนวนวันทานยา:</strong> {takeDaysCount} วัน</p>
+                        <p><strong>จำนวนเม็ดยาทั้งหมด:</strong> {totalPills} เม็ด</p>
+                    </div>
+                )}
+                <p className="mt-2 text-base print:text-base"><strong>วิธีรับประทานยา:</strong> {mealInfo || ''}</p>
+                {/* REQ-040925.8: Added a div with a top border to separate the additional notes */}
+                {pharmacistNotes && (
+                    <div className="mt-2 pt-2 border-t">
+                        <p className="text-sm print:text-xs"><strong>คำแนะนำเพิ่มเติม:</strong> {pharmacistNotes}</p>
+                    </div>
+                )}
                 <p className="text-right text-xs pt-2 text-gray-600 print:hidden"><strong>วันที่พิมพ์:</strong> {formatDate(new Date())}</p>
             </div>
         );
@@ -288,7 +299,9 @@
         const Calendar = ({ month, year, markedDays, mealRelationText }) => {
             const daysInMonth = new Date(year, month + 1, 0).getDate();
             const firstDayOfMonth = new Date(year, month, 1).getDay();
-            const monthName = new Date(year, month).toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
+            
+            const thaiMonth = new Date(year, month).toLocaleDateString('th-TH', { month: 'long' });
+            const monthName = `${thaiMonth} ${year}`;
 
             const calendarGrid = [];
             for (let i = 0; i < firstDayOfMonth; i++) { calendarGrid.push(<div key={`empty-${i}`} className="border rounded-md p-1"></div>); }
@@ -399,6 +412,17 @@
                     }));
                 }
                 else {
+                    if (name === 'startDate' && value) {
+                        try {
+                            const newStartDate = new Date(value);
+                            if (!isNaN(newStartDate.getTime())) {
+                                setMonth(newStartDate.getMonth());
+                                setYear(newStartDate.getFullYear());
+                            }
+                        } catch(e) {
+                            console.error("Could not parse start date:", value);
+                        }
+                    }
                     setFormData(prev => ({ ...prev, [name]: value }));
                 }
             };
@@ -449,7 +473,6 @@
                 
                 try {
                     setError('');
-                    // REQ-040925.2: Removed the `if (groupType !== 4)` to include Group 4 in this logic block
                     switch (groupType) {
                         case 1: 
                             if (!startDate || !numberOfDays) throw new Error("Incomplete");
@@ -489,23 +512,21 @@
                                 }
                             }
                             break;
-                        // REQ-040925.2: Added new logic for Group 4 to auto-generate based on date range
                         case 4:
                             if (!startDate || !endDate) throw new Error("Incomplete");
                             let currentGroup4 = new Date(startDate);
                             const endGroup4 = new Date(endDate);
-                            if (currentGroup4 > endGroup4) break; // Start date is after end date
+                            if (currentGroup4 > endGroup4) break; 
                             
                             endGroup4.setHours(23, 59, 59, 999);
                             
                             while (currentGroup4 <= endGroup4) {
-                                const dayOfWeek = currentGroup4.getDay(); // 0 = Sunday, 6 = Saturday
-                                // Check if it's a weekday (Monday-Friday) and not a holiday
+                                const dayOfWeek = currentGroup4.getDay();
                                 if (dayOfWeek >= 1 && dayOfWeek <= 5 && !isHoliday(currentGroup4)) {
                                     regimenDays.push({ date: dateToYYYYMMDD(currentGroup4), type: 'take', timings: formData.timings });
                                 }
                                 currentGroup4.setDate(currentGroup4.getDate() + 1);
-                                if (regimenDays.length > 365 * 2) break; // Safety break
+                                if (regimenDays.length > 365 * 2) break;
                             }
                             break;
                         case 5:
@@ -566,8 +587,6 @@
               d.setMonth(d.getMonth() + delta);
               setMonth(d.getMonth()); setYear(d.getFullYear());
             };
-
-            const freestyleDrugOptions = useMemo(() => DRUGS_DATA.filter(d => d.group === 1 || d.group === 2), []);
             
             const pillsPerDay = useMemo(() => {
                 const { timings } = formData;
@@ -575,23 +594,15 @@
                 return Object.values(timings).reduce((sum, timingData) => sum + (timingData.checked ? (parseInt(timingData.pills) || 0) : 0), 0);
             }, [formData.timings]);
 
-            const totalDoseGroup1 = useMemo(() => { if (groupType === 1 && pillsPerDay > 0 && formData.numberOfDays) { const n=parseInt(formData.numberOfDays); return !isNaN(n)?pillsPerDay*n:0; } return 0; }, [pillsPerDay, formData.numberOfDays, groupType]);
-            const totalDoseGroup2 = useMemo(() => { if (groupType === 2 && pillsPerDay > 0 && formData.on && formData.cycles) { const o=parseInt(formData.on), c=parseInt(formData.cycles); return !isNaN(o)&&!isNaN(c)?pillsPerDay*o*c:0; } return 0; }, [pillsPerDay, formData.on, formData.cycles, groupType]);
-            // REQ-040925.2: Logic for calculating total pills for Group 4
-            const totalDoseGroup4 = useMemo(() => { if (groupType === 4 && pillsPerDay > 0 && calendarDays.length > 0) { const takeDays = calendarDays.filter(d => d.type === 'take').length; return takeDays * pillsPerDay; } return 0; }, [groupType, pillsPerDay, calendarDays]);
-            const totalDoseGroup3 = useMemo(() => { if (groupType === 3 && pillsPerDay > 0 && formData.startDate && formData.endDate) { try { const s=new Date(formData.startDate), e=new Date(formData.endDate); if(s>e)return 0; return pillsPerDay*(Math.ceil(Math.abs(e-s)/(1e3*60*60*24))+1); } catch (e){return 0;} } return 0; }, [pillsPerDay, formData.startDate, formData.endDate, groupType]);
-            const totalDoseFreestyle = useMemo(() => { if(groupType!==5||pillsPerDay<=0||!formData.startDate||!freestyleConfig.onDays||!freestyleConfig.offDays)return 0; try{ let takeDaysCount=0,c=new Date(formData.startDate),f=formData.endDate?new Date(formData.endDate):null; if(f)f.setHours(23,59,59,999); const on=parseInt(freestyleConfig.onDays),off=parseInt(freestyleConfig.offDays)||0; if(isNaN(on)||on<=0)return 0; while(!f||c<=f){for(let i=0;i<on&&(!f||c<=f);i++){takeDaysCount++;c.setDate(c.getDate()+1);} for(let i=0;i<off&&(!f||c<=f);i++){c.setDate(c.getDate()+1);}} return takeDaysCount*pillsPerDay; }catch(e){return 0;} }, [groupType, pillsPerDay, formData.startDate, formData.endDate, freestyleConfig.onDays, freestyleConfig.offDays]);
-            
-            const totalPills = useMemo(() => {
-                switch (groupType) {
-                    case 1: return totalDoseGroup1;
-                    case 2: return totalDoseGroup2;
-                    case 3: return totalDoseGroup3;
-                    case 4: return totalDoseGroup4;
-                    case 5: return totalDoseFreestyle;
-                    default: return 0;
+            // REQ-040925.6: Simplified and centralized calculation for total days and pills
+            const calculationResults = useMemo(() => {
+                if (!pillsPerDay || calendarDays.length === 0) {
+                    return { takeDaysCount: 0, totalPills: 0 };
                 }
-            }, [groupType, totalDoseGroup1, totalDoseGroup2, totalDoseGroup3, totalDoseGroup4, totalDoseFreestyle]);
+                const takeDaysCount = calendarDays.filter(day => day.type === 'take').length;
+                const totalPills = takeDaysCount * pillsPerDay;
+                return { takeDaysCount, totalPills };
+            }, [calendarDays, pillsPerDay]);
             
             const isPatientInfoFilled = hn.trim() && firstName.trim() && lastName.trim();
             const isDrugSelected = !!selectedDrugId;
@@ -664,7 +675,7 @@
                                                 <label className="text-sm font-medium text-gray-600 mb-1 block">เลือกยาสำหรับสูตร</label>
                                                 <select name="freestyleSubDrugId" value={freestyleConfig.subDrugId} onChange={handleInputChange} className="w-full p-2 border rounded">
                                                     <option value="">-- เลือกยาสำหรับสูตร --</option>
-                                                    {freestyleDrugOptions.map(drug => <option key={`fs-${drug.id}`} value={drug.id}>กลุ่ม {drug.group}: {drug.name}</option>)}
+                                                    {DRUGS_DATA.filter(d => d.group === 1 || d.group === 2).map(drug => <option key={`fs-${drug.id}`} value={drug.id}>กลุ่ม {drug.group}: {drug.name}</option>)}
                                                 </select>
                                             </div>
                                             <div className="mb-2">
@@ -728,7 +739,6 @@
                                             </div>
                                         </div>
                                     </>}
-                                    {/* REQ-040925.2: Changed UI for Group 4 from a message to date inputs */}
                                     { groupType === 4 && <>
                                         <div className="mb-2">
                                             <label className="text-sm font-medium text-gray-600 mb-1 block">วันที่เริ่ม</label>
@@ -786,9 +796,17 @@
                                       </div>
                                   </div>
 
-                                  {totalPills > 0 && (
-                                      <div className="mt-4 p-2 bg-green-100 rounded-md text-center text-green-800 font-semibold">
-                                          จำนวนเม็ดยา: {totalPills}
+                                  {/* REQ-040925.6: Display summary of total days and pills in the form section */}
+                                  {calculationResults.totalPills > 0 && (
+                                      <div className="mt-4 p-3 bg-green-100 rounded-md text-green-800 font-semibold space-y-1">
+                                          <div className="flex justify-between">
+                                              <span>จำนวนวันทานยา:</span>
+                                              <span>{calculationResults.takeDaysCount} วัน</span>
+                                          </div>
+                                          <div className="flex justify-between">
+                                              <span>จำนวนเม็ดยาทั้งหมด:</span>
+                                              <span>{calculationResults.totalPills} เม็ด</span>
+                                          </div>
                                       </div>
                                   )}
 
@@ -822,7 +840,17 @@
 
                       <div className="lg:col-span-2">
                         <div className="bg-white p-4 rounded-lg shadow-lg no-print">
-                           <CalendarHeader hn={hn} firstName={firstName} lastName={lastName} drugName={getDrugNameForDisplay()} mealInfo={getMealInfoText()} pharmacistNotes={pharmacistNotes} />
+                           {/* REQ-040925.6: Pass calculation results to the calendar header */}
+                           <CalendarHeader 
+                                hn={hn} 
+                                firstName={firstName} 
+                                lastName={lastName} 
+                                drugName={getDrugNameForDisplay()} 
+                                mealInfo={getMealInfoText()} 
+                                pharmacistNotes={pharmacistNotes} 
+                                takeDaysCount={calculationResults.takeDaysCount}
+                                totalPills={calculationResults.totalPills}
+                            />
                            <div className="flex justify-between items-center mb-4">
                               <button onClick={() => changeMonth(-1)} className="no-print bg-gray-200 px-4 py-2 rounded-md hover:bg-gray-300">&lt; เดือนก่อนหน้า</button>
                               <button onClick={() => changeMonth(1)} className="no-print bg-gray-200 px-4 py-2 rounded-md hover:bg-gray-300">เดือนถัดไป &gt;</button>
@@ -837,7 +865,17 @@
                 <div className="hidden print:block" id="print-container">
                     {monthsToPrint.map((date, index) => (
                         <div key={`${date.year}-${date.month}`} className="print-page">
-                             <CalendarHeader hn={hn} firstName={firstName} lastName={lastName} drugName={getDrugNameForDisplay()} mealInfo={getMealInfoText()} pharmacistNotes={pharmacistNotes} />
+                            {/* REQ-040925.6: Pass calculation results to the calendar header for printing */}
+                             <CalendarHeader 
+                                hn={hn} 
+                                firstName={firstName} 
+                                lastName={lastName} 
+                                drugName={getDrugNameForDisplay()} 
+                                mealInfo={getMealInfoText()} 
+                                pharmacistNotes={pharmacistNotes}
+                                takeDaysCount={calculationResults.takeDaysCount}
+                                totalPills={calculationResults.totalPills}
+                            />
                              <Calendar 
                                 month={date.month} 
                                 year={date.year}
