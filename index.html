@@ -48,10 +48,6 @@
                 page-break-after: auto;
             }
 
-            .bg-green-100, .bg-red-100, .bg-blue-100, .bg-yellow-100 {
-                background-color: transparent !important;
-            }
-
             * {
                 color: #000 !important;
                 -webkit-print-color-adjust: exact;
@@ -71,9 +67,6 @@
             }
             .day-checkbox {
                 border: 1px solid #000 !important;
-            }
-            .print-holiday-bg {
-                background-color: #e5e7eb !important; /* gray-200 */
             }
         }
     </style>
@@ -155,7 +148,6 @@
             if (isNaN(d.getTime())) return '';
             const day = String(d.getDate()).padStart(2, '0');
             const month = String(d.getMonth() + 1).padStart(2, '0');
-            // REQ 120925.4: Convert Gregorian year to Buddhist year
             const year = d.getFullYear() + 543;
             return `${day}/${month}/${year}`;
         };
@@ -170,6 +162,13 @@
         };
         
         // --- React Components ---
+
+        const HolidayIcon = () => (
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-8 h-8 text-gray-400">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+        );
+
 
         const PatchedDateInput = ({ value, onChange, ...props }) => {
             const [isEditing, setIsEditing] = useState(false);
@@ -245,20 +244,27 @@
             </div>
         );
 
-        const DayCell = ({ dayOfMonth, dayData, mealRelationText, isWeekendOrHoliday }) => {
-            let bgColor = isWeekendOrHoliday ? 'bg-slate-100' : 'bg-white';
-            let textColor = isWeekendOrHoliday ? 'text-slate-500' : 'text-black';
-            let printClass = '';
+        const DayCell = ({ dayOfMonth, dayData, mealRelationText, currentDate, isNonEventHoliday }) => {
+            const dayOfWeek = currentDate.getDay();
+            // REQ 300925.1.5: Change background color shade from 50 to 100 for more intensity.
+            const dayColors = [
+                'bg-red-100',      // 0: Sunday
+                'bg-yellow-100',   // 1: Monday
+                'bg-pink-100',     // 2: Tuesday
+                'bg-emerald-100',  // 3: Wednesday
+                'bg-orange-100',   // 4: Thursday
+                'bg-sky-100',      // 5: Friday
+                'bg-purple-100'    // 6: Saturday
+            ];
+            
+            let bgColor = dayColors[dayOfWeek];
+            let textColor = (dayOfWeek === 0 || dayOfWeek === 6) ? 'text-slate-600' : 'text-black';
 
-            if (dayData) {
-                if (dayData.type === 'take') bgColor = 'bg-green-100';
-                if (dayData.type === 'stop') bgColor = 'bg-red-100';
-                if (dayData.type === 'appointment') bgColor = 'bg-blue-100 text-blue-800';
-            } else if (isWeekendOrHoliday) {
-                printClass = 'print-holiday-bg';
+            if (dayData && dayData.type === 'appointment') {
+                textColor = 'text-blue-800';
             }
-
-            const finalClassName = `border rounded-md p-1 text-sm h-28 flex flex-col ${bgColor} ${textColor} ${printClass} print:h-auto print:min-h-[2.8cm]`;
+            
+            const finalClassName = `border rounded-md p-1 text-sm h-28 flex flex-col ${bgColor} ${textColor} print:h-auto print:min-h-[2.8cm]`;
             
             return (
                 <div data-day-type={dayData?.type} className={finalClassName}>
@@ -266,8 +272,15 @@
                         <span>{dayData?.type === 'take' ? mealRelationText : ''}</span>
                         <span>{dayOfMonth}</span>
                     </div>
+                    
+                    {isNonEventHoliday && (
+                        <div className="flex-grow flex items-center justify-center print:hidden">
+                            <HolidayIcon />
+                        </div>
+                    )}
+                    
+                    {!dayData && !isNonEventHoliday && <div className="flex-grow"></div>}
 
-                    {!dayData && <div className="flex-grow"></div>}
 
                     {dayData?.type === 'appointment' && (
                         <div className="flex-grow flex items-center justify-center font-bold">
@@ -308,7 +321,6 @@
             const firstDayOfMonth = new Date(year, month, 1).getDay();
             
             const thaiMonth = new Date(year, month).toLocaleDateString('th-TH', { month: 'long' });
-            // REQ 120925.4: Convert Gregorian year to Buddhist year for calendar header
             const monthName = `${thaiMonth} ${year + 543}`;
 
             const calendarGrid = [];
@@ -319,13 +331,16 @@
                 const dateString = dateToYYYYMMDD(currentDate);
                 const mark = markedDays.find(d => d.date === dateString);
                 
+                const isNonEventHoliday = !mark && (isWeekend(currentDate) || isHoliday(currentDate));
+
                 calendarGrid.push(
                     <DayCell 
                         key={day}
                         dayOfMonth={day}
                         dayData={mark}
                         mealRelationText={mealRelationText}
-                        isWeekendOrHoliday={isWeekend(currentDate) || isHoliday(currentDate)}
+                        currentDate={currentDate}
+                        isNonEventHoliday={isNonEventHoliday}
                     />
                 );
             }
@@ -803,7 +818,6 @@
                                       </div>
                                   </div>
 
-                                  {/* REQ-040925.6: Display summary of total days and pills in the form section */}
                                   {calculationResults.totalPills > 0 && (
                                       <div className="mt-4 p-3 bg-green-100 rounded-md text-green-800 font-semibold space-y-1">
                                           <div className="flex justify-between">
@@ -847,7 +861,6 @@
 
                       <div className="lg:col-span-2">
                         <div className="bg-white p-4 rounded-lg shadow-lg no-print">
-                           {/* REQ-040925.6: Pass calculation results to the calendar header */}
                            <CalendarHeader 
                                 hn={hn} 
                                 firstName={firstName} 
@@ -872,7 +885,6 @@
                 <div className="hidden print:block" id="print-container">
                     {monthsToPrint.map((date, index) => (
                         <div key={`${date.year}-${date.month}`} className="print-page">
-                            {/* REQ-040925.6: Pass calculation results to the calendar header for printing */}
                              <CalendarHeader 
                                 hn={hn} 
                                 firstName={firstName} 
@@ -889,7 +901,6 @@
                                 markedDays={calendarDays}
                                 mealRelationText={getMealRelationText()}
                             />
-                            {/* Show footer only on the last page of all calendars */}
                             {index === monthsToPrint.length - 1 && <CalendarFooter nextAppointment={nextAppointment} />}
                         </div>
                     ))}
