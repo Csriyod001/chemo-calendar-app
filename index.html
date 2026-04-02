@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ปฏิทินยาเคมีบำบัด (Chemo Calendar) - v.021225.2.1</title>
+    <title>ปฏิทินยาเคมีบำบัด (Chemo Calendar) - v.021225.2.2</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -41,7 +41,7 @@
                 width: 100%;
             }
             .no-print {
-                display: none;
+                display: none !important;
             }
             .print-page {
                 page-break-after: always;
@@ -78,7 +78,7 @@
         }
     </style>
 </head>
-<body class="bg-slate-100">
+<body class="bg-slate-100 relative">
     <div id="root"></div>
 
     <script type="text/babel">
@@ -211,7 +211,7 @@
             );
         };
 
-        const CalendarHeader = ({ hn, firstName, lastName, drugName, mealInfo, pharmacistNotes, takeDaysCount, totalPills }) => (
+        const CalendarHeader = ({ hn, firstName, lastName, drugName, mealInfo, pharmacistNotes, takeDaysCount, totalPills, dispensedPills }) => (
             <div className="mb-4 border-b pb-4 print:mb-2">
                 <h1 className="text-3xl font-bold text-center mb-4 print:text-2xl print:mb-2">ปฏิทินการรับประทานยา</h1>
                 <div className="grid grid-cols-2 gap-x-8 text-gray-800 text-base print:text-base">
@@ -227,6 +227,8 @@
                     <div className="mt-2 pt-2 border-t grid grid-cols-2 gap-x-8 text-base print:text-base">
                         <p><strong>จำนวนวันทานยา:</strong> {takeDaysCount} วัน</p>
                         <p><strong>จำนวนเม็ดยาทั้งหมด:</strong> {totalPills} เม็ด</p>
+                        {/* แสดงจำนวนยาที่จ่ายในหน้าปริ้นท์ด้วย ถ้ามีการกรอกข้อมูล */}
+                        {dispensedPills && <p className="col-span-2 mt-1 text-blue-800"><strong>จำนวนเม็ดยาที่แพทย์สั่งจ่าย:</strong> {dispensedPills} เม็ด</p>}
                     </div>
                 )}
                 <p className="mt-2 text-base print:text-base"><strong>วิธีรับประทานยา:</strong> {mealInfo || ''}</p>
@@ -403,8 +405,11 @@
             const [pharmacistNotes, setPharmacistNotes] = useState('');
             const [startFromEvening, setStartFromEvening] = useState(false);
             const [currentCycle, setCurrentCycle] = useState(1);
-            
             const [calcMethod, setCalcMethod] = useState('cycles'); 
+
+            // --- ส่วนที่เพิ่มใหม่สำหรับเก็บข้อมูลจำนวนเม็ดยาที่จ่าย ---
+            const [dispensedPills, setDispensedPills] = useState('');
+            // ------------------------------------------------
 
             const selectedDrug = useMemo(() => DRUGS_DATA.find(d => d.id === parseInt(selectedDrugId)), [selectedDrugId]);
             const groupType = selectedDrug?.group;
@@ -415,6 +420,7 @@
                 setLastName('');
                 setSelectedDrugId(''); 
                 setPharmacistNotes('');
+                setDispensedPills(''); // รีเซ็ตค่ายาที่จ่าย
             }, []);
 
             const resetRegimenForm = useCallback(() => {
@@ -516,11 +522,9 @@
                     const subDrug = DRUGS_DATA.find(d => d.id === parseInt(freestyleConfig.subDrugId));
                     name = `${selectedDrug.name} (${subDrug?.name || ''})`;
                 }
-                // --- CYCLE DISPLAY LOGIC (Requirement 2.1) ---
                 if (groupType === 2 && currentCycle) {
                     name += ` cycle: ${currentCycle}`;
                 }
-                // ---------------------------------------------
                 return name;
             };
 
@@ -540,6 +544,7 @@
                     const startObj = parseLocalDate(startDate);
                     const endObj = parseLocalDate(endDate);
 
+                    // สร้างลูปการล็อควัน/Cycle ปกติตามเดิมทั้งหมด ไม่มีการแก้ไขระบบสร้างปฏิทินส่วนนี้
                     switch (groupType) {
                         case 1: // Continuous
                             if (!startDate || !numberOfDays) throw new Error("Incomplete");
@@ -607,7 +612,6 @@
                             
                             while (currentGroup4 <= endGroup4) {
                                 const dayOfWeek = currentGroup4.getDay();
-                                // Check if it's a weekday (Mon=1 to Fri=5) AND not a holiday
                                 if (dayOfWeek >= 1 && dayOfWeek <= 5 && !isHoliday(currentGroup4)) {
                                     regimenDays.push({ date: dateToYYYYMMDD(currentGroup4), type: 'take', timings: formData.timings });
                                 } else {
@@ -632,16 +636,12 @@
                             break;
                     }
 
-                    // --- PARTIAL START LOGIC (Requirement 2) ---
+                    // --- PARTIAL START LOGIC ---
                     if (startFromEvening && regimenDays.length > 0) {
-                         // 1. Find the first 'take' day
                         const firstTakeIndex = regimenDays.findIndex(d => d.type === 'take');
                         
                         if (firstTakeIndex !== -1) {
-                            // 2. Clone the original timings for compensation later
                             const originalTimings = JSON.parse(JSON.stringify(formData.timings));
-                            
-                            // 3. Modify the first day: Remove Morning and Noon
                             const firstDay = regimenDays[firstTakeIndex];
                             const modifiedFirstDayTimings = JSON.parse(JSON.stringify(firstDay.timings));
                             
@@ -650,67 +650,41 @@
                             
                             regimenDays[firstTakeIndex] = { ...firstDay, timings: modifiedFirstDayTimings };
 
-                            // 4. Determine missing timings for compensation
                             const compensationTimings = JSON.parse(JSON.stringify(originalTimings));
                             if (compensationTimings.evening) { compensationTimings.evening.checked = false; compensationTimings.evening.pills = ''; }
                             if (compensationTimings.bedtime) { compensationTimings.bedtime.checked = false; compensationTimings.bedtime.pills = ''; }
                             
-                            // Only add compensation day if there's actually something to take (Morning or Noon was originally checked)
                             if (originalTimings.morning?.checked || originalTimings.noon?.checked) {
-                                // 5. Find the last 'take' day to calculate where to append
-                                // Note: We filter for 'take' type to find the logical end of dosing
                                 const lastTakeIndex = regimenDays.map((d, i) => d.type === 'take' ? i : -1).reduce((max, i) => Math.max(max, i), -1);
                                 
                                 if (lastTakeIndex !== -1) {
                                     const lastTakeDateStr = regimenDays[lastTakeIndex].date;
                                     let nextDate = parseLocalDate(lastTakeDateStr);
-                                    
-                                    // Calculate next valid date
-                                    // For Group 4, we must skip Sat/Sun/Holidays
-                                    // For others, just next day
                                     do {
                                         nextDate.setDate(nextDate.getDate() + 1);
                                     } while (
                                         groupType === 4 && (isWeekend(nextDate) || isHoliday(nextDate))
                                     );
                                     
-                                    const compensationDay = {
-                                        date: dateToYYYYMMDD(nextDate),
-                                        type: 'take',
-                                        timings: compensationTimings
-                                    };
-
-                                    // Insert or Append?
-                                    // We need to insert it correctly in the timeline. 
-                                    // If we are in Group 2 (Cycles), existing logic might have generated 'stop' days after the last 'take'.
-                                    // We should try to check if the date already exists in regimenDays (as a 'stop').
+                                    const compensationDay = { date: dateToYYYYMMDD(nextDate), type: 'take', timings: compensationTimings };
                                     const existingDayIndex = regimenDays.findIndex(d => d.date === compensationDay.date);
                                     
                                     if (existingDayIndex !== -1) {
-                                        // Replace the existing day (likely a 'stop' day) with this compensation 'take' day
                                         regimenDays[existingDayIndex] = compensationDay;
                                     } else {
-                                        // Append to list
                                         regimenDays.push(compensationDay);
                                     }
                                 }
                             }
                         }
                     }
-                    // --- END PARTIAL START LOGIC ---
 
                     if (appointmentDateInput) {
                         const apptDate = parseLocalDate(appointmentDateInput);
                         if (apptDate) {
-                            // Check if duplicate
                             const exists = regimenDays.find(d => d.date === dateToYYYYMMDD(apptDate));
                             if (exists) {
                                 exists.type = 'appointment'; 
-                                if (exists.type !== 'take') { 
-                                     exists.type = 'appointment';
-                                } else {
-                                    // It is both take and appointment. 
-                                }
                             } else {
                                 regimenDays.push({ date: dateToYYYYMMDD(apptDate), type: 'appointment' });
                             }
@@ -746,14 +720,6 @@
                 setMonthsToPrint(printMonths);
             }, [calendarDays]);
 
-
-            const handlePrint = () => { setTimeout(() => { window.print(); }, 100); };
-            const changeMonth = (delta) => {
-              let d = new Date(year, month);
-              d.setMonth(d.getMonth() + delta);
-              setMonth(d.getMonth()); setYear(d.getFullYear());
-            };
-            
             const pillsPerDay = useMemo(() => {
                 const { timings } = formData;
                 if (!timings) return 0;
@@ -764,7 +730,6 @@
                 if (!pillsPerDay || calendarDays.length === 0) {
                     return { takeDaysCount: 0, totalPills: 0 };
                 }
-                // Recalculate precisely based on actual days (because Day 1 and Last Day might differ)
                 let total = 0;
                 let takeCount = 0;
                 calendarDays.forEach(day => {
@@ -773,13 +738,19 @@
                         if (day.timings) {
                              total += Object.values(day.timings).reduce((sum, t) => sum + (t.checked ? (parseInt(t.pills) || 0) : 0), 0);
                         } else {
-                             // Fallback if timings missing on day object (shouldn't happen)
                              total += pillsPerDay;
                         }
                     }
                 });
                 return { takeDaysCount: takeCount, totalPills: total };
             }, [calendarDays, pillsPerDay]);
+
+            const handlePrint = () => { setTimeout(() => { window.print(); }, 100); };
+            const changeMonth = (delta) => {
+              let d = new Date(year, month);
+              d.setMonth(d.getMonth() + delta);
+              setMonth(d.getMonth()); setYear(d.getFullYear());
+            };
             
             const isPatientInfoFilled = hn.trim() && firstName.trim() && lastName.trim();
             const isDrugSelected = !!selectedDrugId;
@@ -1032,21 +1003,56 @@
                                       </div>
                                   </div>
 
+                                  {/* กล่องใส่จำนวนเม็ดยาที่จ่าย (Requirement 1) */}
+                                  <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                                      <label className="block text-gray-700 font-semibold mb-2 text-sm">4. จำนวนเม็ดยาที่สั่งจ่ายทั้งหมด (เม็ด)</label>
+                                      <input 
+                                          type="number" 
+                                          value={dispensedPills}
+                                          onChange={(e) => setDispensedPills(e.target.value)}
+                                          className="w-full p-2 border rounded"
+                                          placeholder="ระบุจำนวนเม็ดยาที่จ่ายเพื่อตรวจสอบ..."
+                                          min="0"
+                                          onWheel={(e) => e.target.blur()}
+                                      />
+                                      <p className="text-xs text-gray-500 mt-1">ระบบจะเปรียบเทียบกับจำนวนยาที่ต้องใช้ตามปฏิทิน</p>
+                                  </div>
+
+                                  {/* สรุปข้อมูล และการเตือนด้วยการเปลี่ยนสี */}
                                   {calculationResults.totalPills > 0 && (
-                                      <div className="mt-4 p-3 bg-green-100 rounded-md text-green-800 font-semibold space-y-1">
-                                          <div className="flex justify-between">
-                                              <span>จำนวนวันทานยา:</span>
-                                              <span>{calculationResults.takeDaysCount} วัน</span>
+                                      <div className="mt-4">
+                                          <div className={`p-3 rounded-md font-semibold space-y-1 border ${
+                                              dispensedPills && parseInt(dispensedPills) !== calculationResults.totalPills
+                                              ? (parseInt(dispensedPills) < calculationResults.totalPills ? 'bg-red-100 text-red-800 border-red-300' : 'bg-yellow-100 text-yellow-800 border-yellow-300')
+                                              : 'bg-green-100 text-green-800 border-green-300'
+                                          }`}>
+                                              <div className="flex justify-between">
+                                                  <span>จำนวนวันทานยา:</span>
+                                                  <span>{calculationResults.takeDaysCount} วัน</span>
+                                              </div>
+                                              <div className="flex justify-between">
+                                                  <span>จำนวนเม็ดยาทั้งหมด:</span>
+                                                  <span>{calculationResults.totalPills} เม็ด</span>
+                                              </div>
+                                              {dispensedPills && (
+                                                <div className="flex justify-between pt-1 mt-1 border-t border-current opacity-80">
+                                                    <span>จำนวนเม็ดยาที่แพทย์สั่งจ่าย:</span>
+                                                    <span>{dispensedPills} เม็ด</span>
+                                                </div>
+                                              )}
                                           </div>
-                                          <div className="flex justify-between">
-                                              <span>จำนวนเม็ดยาทั้งหมด:</span>
-                                              <span>{calculationResults.totalPills} เม็ด</span>
-                                          </div>
+                                          
+                                          {dispensedPills && !isNaN(parseInt(dispensedPills)) && parseInt(dispensedPills) !== calculationResults.totalPills && (
+                                              <div className={`mt-2 p-3 text-sm font-bold border rounded-md ${parseInt(dispensedPills) < calculationResults.totalPills ? 'bg-red-50 border-red-400 text-red-700' : 'bg-yellow-50 border-yellow-400 text-yellow-700'}`}>
+                                                  ⚠️ แจ้งเตือน: ตามการคำนวณ {calculationResults.totalPills} เม็ด แพทย์สั่งจ่าย {dispensedPills} เม็ด 
+                                                  ({parseInt(dispensedPills) < calculationResults.totalPills ? 'ขาด' : 'เกิน'} {Math.abs(parseInt(dispensedPills) - calculationResults.totalPills)} เม็ด)
+                                              </div>
+                                          )}
                                       </div>
                                   )}
 
                                   <div className="mt-4">
-                                      <label className="block text-gray-700 font-semibold mb-2">4. วันนัดรับยา (ถ้ามี)</label>
+                                      <label className="block text-gray-700 font-semibold mb-2 text-sm">5. วันนัดรับยา (ถ้ามี)</label>
                                       <PatchedDateInput 
                                           name="appointmentDateInput" 
                                           value={appointmentDateInput} 
@@ -1057,7 +1063,7 @@
                                   </div>
 
                                   <div className="mt-4">
-                                      <label className="block text-gray-700 font-semibold mb-2">5. ข้อความเพิ่มเติม</label>
+                                      <label className="block text-gray-700 font-semibold mb-2 text-sm">6. ข้อความเพิ่มเติม</label>
                                       <textarea
                                           value={pharmacistNotes}
                                           onChange={(e) => setPharmacistNotes(e.target.value)}
@@ -1070,7 +1076,7 @@
                             )}
                           </fieldset>
 
-                          {error && <p className="text-red-500 text-sm mb-4 bg-red-100 p-2 rounded">{error}</p>}
+                          {error && <p className="text-red-500 text-sm mt-4 bg-red-100 p-2 rounded">{error}</p>}
                       </div>
 
                       <div className="lg:col-span-2">
@@ -1084,6 +1090,7 @@
                                 pharmacistNotes={pharmacistNotes} 
                                 takeDaysCount={calculationResults.takeDaysCount}
                                 totalPills={calculationResults.totalPills}
+                                dispensedPills={dispensedPills}
                             />
                            <div className="flex justify-between items-center mb-4">
                               <button onClick={() => changeMonth(-1)} className="no-print bg-gray-200 px-4 py-2 rounded-md hover:bg-gray-300">&lt; เดือนก่อนหน้า</button>
@@ -1108,6 +1115,7 @@
                                 pharmacistNotes={pharmacistNotes}
                                 takeDaysCount={calculationResults.takeDaysCount}
                                 totalPills={calculationResults.totalPills}
+                                dispensedPills={dispensedPills}
                             />
                              <Calendar 
                                 month={date.month} 
@@ -1131,4 +1139,3 @@
     </script>
 </body>
 </html>
-
