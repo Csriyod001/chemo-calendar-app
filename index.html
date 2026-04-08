@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ปฏิทินยาเคมีบำบัด (Chemo Calendar) - update 03042026</title>
+    <title>ปฏิทินยาเคมีบำบัด (Chemo Calendar) - update 08/04/2026</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -1036,6 +1036,16 @@
                     return calculatePillsStats(calendarDays, formData.timings);
                 }
             }, [calendarDays, formData.timings, formData2.timings, groupType]);
+            useEffect(() => {
+                if (groupType === 5 && adjustByDispensed1 && calendarDays.length > 0) {
+                    const lastTakeDay = [...calendarDays].reverse().find(d => d.type === 'take');
+                    if (lastTakeDay) {
+                        if (formData.endDate !== lastTakeDay.date) {
+                            setFormData(prev => ({ ...prev, endDate: lastTakeDay.date }));
+                        }
+                    }
+                }
+            }, [calendarDays, groupType, adjustByDispensed1, formData.endDate]);
 
             const handlePrint = () => { setTimeout(() => { window.print(); }, 100); };
             const changeMonth = (delta) => {
@@ -1356,6 +1366,14 @@
                                                             <option value="">-- เลือกยาสำหรับสูตร --</option>
                                                             {DRUGS_DATA.filter(d => d.group === 1 || d.group === 2).map(drug => <option key={`fs-${drug.id}`} value={drug.id}>กลุ่ม {drug.group}: {drug.name}</option>)}
                                                         </select>
+                                                    </div>
+                                                    <div className="mb-2">
+                                                        <label className="text-sm font-medium text-gray-600 mb-1 block">วันที่เริ่ม</label>
+                                                        <PatchedDateInput name="startDate" value={formData.startDate || ''} onChange={handleInputChange} className="p-2 border rounded w-full" />
+                                                    </div>
+                                                    <div className="mb-2">
+                                                        <label className="text-sm font-medium text-gray-600 mb-1 block">วันสิ้นสุด (ไม่บังคับ)</label>
+                                                        <PatchedDateInput name="endDate" value={formData.endDate || ''} onChange={handleInputChange} className="p-2 border rounded w-full" />
                                                     </div>
                                                     <div className="grid grid-cols-2 gap-2">
                                                         <div>
